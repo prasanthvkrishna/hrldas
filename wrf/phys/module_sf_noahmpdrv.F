@@ -16,16 +16,19 @@ CONTAINS
 	       PLANTING,  HARVEST,SEASON_GDD,                               &
                  IDVEG, IOPT_CRS,  IOPT_BTR, IOPT_RUN, IOPT_SFC, IOPT_FRZ,  & ! IN : User options
               IOPT_INF, IOPT_RAD,  IOPT_ALB, IOPT_SNF,IOPT_TBOT, IOPT_STC,  & ! IN : User options
-              IOPT_GLA, IOPT_RSF, IOPT_SOIL,IOPT_PEDO,IOPT_CROP,            & ! IN : User options
+              IOPT_GLA, IOPT_RSF, IOPT_SOIL,IOPT_PEDO,IOPT_CROP, IOPT_IRR,  & ! IN : User options
               IZ0TLND, SF_URBAN_PHYSICS,                                    & ! IN : User options
 	      SOILCOMP,  SOILCL1,  SOILCL2,   SOILCL3,  SOILCL4,            & ! IN : User options
                    T3D,     QV3D,     U_PHY,    V_PHY,   SWDOWN,      GLW,  & ! IN : Forcing
+               IRFRACT,  SIFRACT,   MIFRACT,  FIFRACT,                      & ! IN : Irrigation fractions
 		 P8W3D,PRECIP_IN,        SR,                                & ! IN : Forcing
                    TSK,      HFX,      QFX,        LH,   GRDFLX,    SMSTAV, & ! IN/OUT LSM eqv
                 SMSTOT,SFCRUNOFF, UDRUNOFF,    ALBEDO,    SNOWC,     SMOIS, & ! IN/OUT LSM eqv
 		  SH2O,     TSLB,     SNOW,     SNOWH,   CANWAT,    ACSNOM, & ! IN/OUT LSM eqv
 		ACSNOW,    EMISS,     QSFC,                                 & ! IN/OUT LSM eqv
  		    Z0,      ZNT,                                           & ! IN/OUT LSM eqv
+               IRNUMSI,  IRNUMMI,  IRNUMFI,   IRWATSI,  IRWATMI,   IRWATFI, & ! IN/OUT Irrigation
+               IRELOSS,  IRSIVOL,  IRMIVOL,   IRFIVOL,  IRRSPLH,  LLANDUSE, & ! IN/OUT Irrigation
                ISNOWXY,     TVXY,     TGXY,  CANICEXY, CANLIQXY,     EAHXY, & ! IN/OUT Noah MP only
 	         TAHXY,     CMXY,     CHXY,    FWETXY, SNEQVOXY,  ALBOLDXY, & ! IN/OUT Noah MP only
                QSNOWXY, WSLAKEXY,    ZWTXY,      WAXY,     WTXY,    TSNOXY, & ! IN/OUT Noah MP only
@@ -44,6 +47,8 @@ CONTAINS
 !                 BEXP_3D,SMCDRY_3D,SMCWLT_3D,SMCREF_3D,SMCMAX_3D,          & ! placeholders to activate 3D soil
 !		 DKSAT_3D,DWSAT_3D,PSISAT_3D,QUARTZ_3D,                     &
 !		 REFDK_2D,REFKDT_2D,                                        &
+                 IRR_FRAC_2D,IRR_HAR_2D,IRR_LAI_2D,IRR_MAD_2D,FILOSS_2D,    &
+                 SPRIR_RATE_2D,MICIR_RATE_2D,FIRTFAC_2D,IR_RAIN_2D,         &
 #ifdef WRF_HYDRO
                sfcheadrt,INFXSRT,soldrain,                                  &
 #endif
@@ -101,6 +106,7 @@ CONTAINS
     INTEGER,                                         INTENT(IN   ) ::  IOPT_SOIL ! soil configuration option
     INTEGER,                                         INTENT(IN   ) ::  IOPT_PEDO ! soil pedotransfer function option
     INTEGER,                                         INTENT(IN   ) ::  IOPT_CROP ! crop model option (0->none; 1->Liu et al.; 2->Gecros)
+    INTEGER,                                         INTENT(IN   ) ::  IOPT_IRR  ! irrigation scheme (0->none; >1 irrigation scheme ON)
     INTEGER,                                         INTENT(IN   ) ::  IZ0TLND   ! option of Chen adjustment of Czil (not used)
     INTEGER,                                         INTENT(IN   ) ::  sf_urban_physics   ! urban physics option
     REAL,    DIMENSION( ims:ime,       8, jms:jme ), INTENT(IN   ) ::  SOILCOMP  ! soil sand and clay percentage
@@ -153,6 +159,15 @@ CONTAINS
 !    REAL,    DIMENSION( ims:ime, 1:nsoil, jms:jme ), INTENT(IN) ::  QUARTZ_3D ! Soil quartz content
 !    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  REFDK_2D  ! Reference Soil Conductivity
 !    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  REFKDT_2D ! Soil Infiltration Parameter
+    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  IRR_FRAC_2D ! irrigation Fraction
+    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  IRR_HAR_2D  ! number of days before harvest date to stop irrigation 
+    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  IRR_LAI_2D  ! Minimum lai to trigger irrigation
+    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  IRR_MAD_2D  ! management allowable deficit (0-1)
+    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  FILOSS_2D   ! fraction of flood irrigation loss (0-1) 
+    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  SPRIR_RATE_2D ! mm/h, sprinkler irrigation rate
+    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  MICIR_RATE_2D ! mm/h, micro irrigation rate
+    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  FIRTFAC_2D    ! flood application rate factor
+    REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN)          ::  IR_RAIN_2D    ! maximum precipitation to stop irrigation trigger
 
 ! INOUT (with generic LSM equivalent)
 
@@ -215,6 +230,24 @@ CONTAINS
     REAL,    DIMENSION( ims:ime,          jms:jme ), INTENT(INOUT) ::  SMCWTDXY  ! soil moisture content in the layer to the water table when deep
     REAL,    DIMENSION( ims:ime,          jms:jme ), INTENT(INOUT) ::  DEEPRECHXY ! recharge to the water table when deep
     REAL,    DIMENSION( ims:ime,          jms:jme ), INTENT(INOUT) ::  RECHXY    ! recharge to the water table (diagnostic) 
+
+!2D inout irrigation variables 
+    CHARACTER(LEN=256),                               INTENT(IN)    :: LLANDUSE   ! landuse data name (USGS or MODIS_IGBP)
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(IN)    :: IRFRACT    ! irrigation fraction
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(IN)    :: SIFRACT    ! sprinkler irrigation fraction
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(IN)    :: MIFRACT    ! micro irrigation fraction
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(IN)    :: FIFRACT    ! flood irrigation fraction   
+    INTEGER, DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRNUMSI    ! irrigation event number, Sprinkler
+    INTEGER, DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRNUMMI    ! irrigation event number, Micro
+    INTEGER, DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRNUMFI    ! irrigation event number, Flood 
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRWATSI    ! irrigation water amount [m] to be applied, Sprinkler
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRWATMI    ! irrigation water amount [m] to be applied, Micro
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRWATFI    ! irrigation water amount [m] to be applied, Flood
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRELOSS    ! loss of irrigation water to evaporation,sprinkler [m/timestep]
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRSIVOL    ! amount of irrigation by sprinkler (mm)
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRMIVOL    ! amount of irrigation by micro (mm)
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRFIVOL    ! amount of irrigation by micro (mm)
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRRSPLH    ! latent heating from sprinkler evaporation (w/m2)    
 
 ! OUT (with no Noah LSM equivalent)
 
@@ -407,6 +440,25 @@ CONTAINS
   REAL   :: PAHB    !precipitation advected heat - bare ground net (W/m2)
   REAL   :: PAH     !precipitation advected heat - total (W/m2)
 
+!ID IN irrigation variables 
+    REAL                                :: IRRFRA     ! irrigation fraction
+    REAL                                :: SIFAC      ! sprinkler irrigation fraction
+    REAL                                :: MIFAC      ! micro irrigation fraction
+    REAL                                :: FIFAC      ! flood irrigation fraction   
+!ID OUT irrigation variables
+    INTEGER                             :: IRCNTSI    ! irrigation event number, Sprinkler
+    INTEGER                             :: IRCNTMI    ! irrigation event number, Micro
+    INTEGER                             :: IRCNTFI    ! irrigation event number, Flood 
+    REAL                                :: IRAMTSI    ! irrigation water amount [m] to be applied, Sprinkler
+    REAL                                :: IRAMTMI    ! irrigation water amount [m] to be applied, Micro
+    REAL                                :: IRAMTFI    ! irrigation water amount [m] to be applied, Flood
+    REAL                                :: IREVPLOS   ! loss of irrigation water to evaporation,sprinkler [m/timestep]
+    REAL                                :: IRSIRATE   ! rate of irrigation by sprinkler [m/timestep]
+    REAL                                :: IRMIRATE   ! rate of irrigation by micro [m/timestep]
+    REAL                                :: IRFIRATE   ! rate of irrigation by micro [m/timestep]
+    REAL                                :: FIRR       ! latent heating due to sprinkler evaporation (w m-2)
+    REAL                                :: EIRR       ! evaporation due to sprinkler evaporation (mm/s)
+
 ! Intermediate terms
 
     REAL                                :: FPICE        ! snow fraction of precip
@@ -461,8 +513,8 @@ CONTAINS
 ! ----------------------------------------------------------------------
 
     CALL NOAHMP_OPTIONS(IDVEG  ,IOPT_CRS  ,IOPT_BTR  ,IOPT_RUN  ,IOPT_SFC  ,IOPT_FRZ , &
-                     IOPT_INF  ,IOPT_RAD  ,IOPT_ALB  ,IOPT_SNF  ,IOPT_TBOT, IOPT_STC , &
-		     IOPT_RSF  ,IOPT_SOIL ,IOPT_PEDO ,IOPT_CROP )
+                     IOPT_INF  ,IOPT_RAD  ,IOPT_ALB  ,IOPT_SNF  ,IOPT_TBOT ,IOPT_STC , &
+		     IOPT_RSF  ,IOPT_SOIL ,IOPT_PEDO ,IOPT_CROP ,IOPT_IRR )
 
     IPRINT    =  .false.                     ! debug printout
 
@@ -632,6 +684,24 @@ CONTAINS
        RECH                  = 0.
        DEEPRECH              = 0.  
 
+! irrigation vars
+       IRRFRA                = IRFRACT(I,J)    ! irrigation fraction
+       SIFAC                 = SIFRACT(I,J)    ! sprinkler irrigation fraction
+       MIFAC                 = MIFRACT(I,J)    ! micro irrigation fraction
+       FIFAC                 = FIFRACT(I,J)    ! flood irrigation fraction   
+       IRCNTSI               = IRNUMSI(I,J)    ! irrigation event number, Sprinkler
+       IRCNTMI               = IRNUMMI(I,J)    ! irrigation event number, Micro
+       IRCNTFI               = IRNUMFI(I,J)    ! irrigation event number, Flood 
+       IRAMTSI               = IRWATSI(I,J)    ! irrigation water amount [m] to be applied, Sprinkler
+       IRAMTMI               = IRWATMI(I,J)    ! irrigation water amount [m] to be applied, Micro
+       IRAMTFI               = IRWATFI(I,J)    ! irrigation water amount [m] to be applied, Flood
+       IREVPLOS              = 0.0             ! loss of irrigation water to evaporation,sprinkler [m/timestep]
+       IRSIRATE              = 0.0             ! rate of irrigation by sprinkler (mm)
+       IRMIRATE              = 0.0             ! rate of irrigation by micro (mm)
+       IRFIRATE              = 0.0             ! rate of irrigation by micro (mm)
+       FIRR                  = 0.0             ! latent heating due to sprinkler evaporation (W m-2)
+       EIRR                  = 0.0             ! evaporation from sprinkler (mm/s)
+
        if(iopt_crop == 2) then   ! gecros crop model
 
          gecros1d(1:60)      = gecros_state(I,1:60,J)       ! Gecros variables 2D -> local
@@ -694,6 +764,42 @@ CONTAINS
 !       parameters%quartz = QUARTZ_3D(I,1:NSOIL,J) ! Soil quartz content
 !       parameters%refdk  = REFDK_2D (I,J)         ! Reference Soil Conductivity
 !       parameters%refkdt = REFKDT_2D(I,J)         ! Soil Infiltration Parameter
+       parameters%IRR_FRAC   = IRR_FRAC_2D(I,J)   ! irrigation Fraction
+       parameters%IRR_HAR    = IRR_HAR_2D(I,J)    ! number of days before harvest date to stop irrigation 
+       parameters%IRR_LAI    = IRR_LAI_2D(I,J)    ! Minimum lai to trigger irrigation
+       parameters%IRR_MAD    = IRR_MAD_2D(I,J)    ! management allowable deficit (0-1)
+       parameters%FILOSS     = FILOSS_2D(I,J)     ! fraction of flood irrigation loss (0-1) 
+       parameters%SPRIR_RATE = SPRIR_RATE_2D(I,J) ! mm/h, sprinkler irrigation rate
+       parameters%MICIR_RATE = MICIR_RATE_2D(I,J) ! mm/h, micro irrigation rate
+       parameters%FIRTFAC    = FIRTFAC_2D(I,J)    ! flood application rate factor
+       parameters%IR_RAIN    = IR_RAIN_2D(I,J)    ! maximum precipitation to stop irrigation trigger
+
+       CALL TRANSFER_MP_PARAMETERS(VEGTYP,SOILTYP,SLOPETYP,SOILCOLOR,CROPTYPE,parameters)
+       
+       if(iopt_soil == 3 .and. .not. parameters%urban_flag) then
+         
+
+! placeholders for 3D soil
+!       parameters%bexp   = BEXP_3D  (I,1:NSOIL,J) ! C-H B exponent
+!       parameters%smcdry = SMCDRY_3D(I,1:NSOIL,J) ! Soil Moisture Limit: Dry
+!       parameters%smcwlt = SMCWLT_3D(I,1:NSOIL,J) ! Soil Moisture Limit: Wilt
+!       parameters%smcref = SMCREF_3D(I,1:NSOIL,J) ! Soil Moisture Limit: Reference
+!       parameters%smcmax = SMCMAX_3D(I,1:NSOIL,J) ! Soil Moisture Limit: Max
+!       parameters%dksat  = DKSAT_3D (I,1:NSOIL,J) ! Saturated Soil Conductivity
+!       parameters%dwsat  = DWSAT_3D (I,1:NSOIL,J) ! Saturated Soil Diffusivity
+!       parameters%psisat = PSISAT_3D(I,1:NSOIL,J) ! Saturated Matric Potential
+!       parameters%quartz = QUARTZ_3D(I,1:NSOIL,J) ! Soil quartz content
+!       parameters%refdk  = REFDK_2D (I,J)         ! Reference Soil Conductivity
+!       parameters%refkdt = REFKDT_2D(I,J)         ! Soil Infiltration Parameter
+       parameters%IRR_FRAC   = IRR_FRAC_2D(I,J)   ! irrigation Fraction
+       parameters%IRR_HAR    = IRR_HAR_2D(I,J)    ! number of days before harvest date to stop irrigation 
+       parameters%IRR_LAI    = IRR_LAI_2D(I,J)    ! Minimum lai to trigger irrigation
+       parameters%IRR_MAD    = IRR_MAD_2D(I,J)    ! management allowable deficit (0-1)
+       parameters%FILOSS     = FILOSS_2D(I,J)     ! fraction of flood irrigation loss (0-1) 
+       parameters%SPRIR_RATE = SPRIR_RATE_2D(I,J) ! mm/h, sprinkler irrigation rate
+       parameters%MICIR_RATE = MICIR_RATE_2D(I,J) ! mm/h, micro irrigation rate
+       parameters%FIRTFAC    = FIRTFAC_2D(I,J)    ! flood application rate factor
+       parameters%IR_RAIN    = IR_RAIN_2D(I,J)    ! maximum precipitation to stop irrigation trigger
 
        CALL TRANSFER_MP_PARAMETERS(VEGTYP,SOILTYP,SLOPETYP,SOILCOLOR,CROPTYPE,parameters)
        
@@ -743,33 +849,6 @@ CONTAINS
 
        FICEOLD = 0.0
        FICEOLD(ISNOW+1:0) = SNICEXY(I,ISNOW+1:0,J) &  ! snow ice fraction  
-           /(SNICEXY(I,ISNOW+1:0,J)+SNLIQXY(I,ISNOW+1:0,J))
-       CO2PP  = CO2_TABLE * P_ML                      ! partial pressure co2 [Pa]
-       O2PP   = O2_TABLE  * P_ML                      ! partial pressure  o2 [Pa]
-       FOLN   = 1.0                                   ! for now, set to nitrogen saturation
-       QC     = undefined_value                       ! test dummy value
-       PBLH   = undefined_value                       ! test dummy value ! PBL height
-       DZ8W1D = DZ8W (I,1,J)                          ! thickness of atmospheric layers
-
-       IF(VEGTYP == 25) FVEG = 0.0                  ! Set playa, lava, sand to bare
-       IF(VEGTYP == 25) PLAI = 0.0 
-       IF(VEGTYP == 26) FVEG = 0.0                  ! hard coded for USGS
-       IF(VEGTYP == 26) PLAI = 0.0
-       IF(VEGTYP == 27) FVEG = 0.0
-       IF(VEGTYP == 27) PLAI = 0.0
-
-       IF ( VEGTYP == ISICE_TABLE ) THEN
-         ICE = -1                           ! Land-ice point
-         CALL NOAHMP_OPTIONS_GLACIER(IOPT_ALB  ,IOPT_SNF  ,IOPT_TBOT, IOPT_STC, IOPT_GLA )
-      
-         TBOT = MIN(TBOT,263.15)                      ! set deep temp to at most -10C
-         CALL NOAHMP_GLACIER(     I,       J,    COSZ,   NSNOW,   NSOIL,      DT, & ! IN : Time/Space/Model-related
-                               T_ML,    P_ML,    U_ML,    V_ML,    Q_ML,    SWDN, & ! IN : Forcing
-                               PRCP,    LWDN,    TBOT,    Z_ML, FICEOLD,   ZSOIL, & ! IN : Forcing
-                              QSNOW,  SNEQVO,  ALBOLD,      CM,      CH,   ISNOW, & ! IN/OUT :
-                                SWE,     SMC,   ZSNSO,  SNDPTH,   SNICE,   SNLIQ, & ! IN/OUT :
-                                 TG,     STC,   SMH2O,   TAUSS,  QSFC1D,          & ! IN/OUT :
-                                FSA,     FSR,    FIRA,     FSH,    FGEV,   SSOIL, & ! OUT : 
                                TRAD,   ESOIL,   RUNSF,   RUNSB,     SAG,    SALB, & ! OUT :
                               QSNBOT,PONDING,PONDING1,PONDING2,    T2MB,    Q2MB, & ! OUT :
 			      EMISSI,  FPICE,    CHB2 &                             ! OUT :
@@ -853,6 +932,7 @@ CONTAINS
             SMCEQ   ,                                                   & ! IN : Vegetation/Soil characteristics
             T_ML    , P_ML    , PSFC    , U_ML    , V_ML    , Q_ML    , & ! IN : Forcing
             QC      , SWDN    , LWDN    ,                               & ! IN : Forcing
+            IRRFRA  , SIFAC   , MIFAC   , FIFAC   , LLANDUSE,           & ! IN : Irrigation: fractions
 	    PRCPCONV, PRCPNONC, PRCPSHCV, PRCPSNOW, PRCPGRPL, PRCPHAIL, & ! IN : Forcing
             TBOT    , CO2PP   , O2PP    , FOLN    , FICEOLD , Z_ML    , & ! IN : Forcing
             ALBOLD  , SNEQVO  ,                                         & ! IN/OUT : 
@@ -866,6 +946,8 @@ CONTAINS
             SMCWTD  ,DEEPRECH , RECH    ,                               & ! IN/OUT :
             GECROS1D,                                                   & ! IN/OUT :
             Z0WRF   ,                                                   &
+            IRCNTSI , IRCNTMI , IRCNTFI , IRAMTSI , IRAMTMI , IRAMTFI , & ! IN/OUT : Irrigation: vars
+            IRSIRATE, IRMIRATE, IRFIRATE, FIRR    , EIRR    ,           & ! IN/OUT : Irrigation: vars
             FSA     , FSR     , FIRA    , FSH     , SSOIL   , FCEV    , & ! OUT : 
             FGEV    , FCTR    , ECAN    , ETRAN   , ESOIL   , TRAD    , & ! OUT : 
             TGB     , TGV     , T2MV    , T2MB    , Q2MV    , Q2MB    , & ! OUT : 
@@ -883,8 +965,8 @@ CONTAINS
 #endif
             )            ! OUT :
                   
-            QFX(I,J) = ECAN + ESOIL + ETRAN
-            LH       (I,J)                = FCEV + FGEV + FCTR
+            QFX(I,J) = ECAN + ESOIL + ETRAN + EIRR
+            LH (I,J) = FCEV + FGEV  + FCTR  + FIRR
 
    ENDIF ! glacial split ends 
 
@@ -893,6 +975,36 @@ CONTAINS
 !           This will crash channel routing, so only pass along positive runoff.
             soldrain(i,j) = max(RUNSB*dt, 0.)        !mm , underground runoff
             INFXSRT(i,j) = RUNSF*dt        !mm , surface runoff
+#endif
+
+
+! INPUT/OUTPUT
+
+             TSK      (I,J)                = TRAD
+             HFX      (I,J)                = FSH
+             GRDFLX   (I,J)                = SSOIL
+	     SMSTAV   (I,J)                = 0.0  ! [maintained as Noah consistency]
+             SMSTOT   (I,J)                = 0.0  ! [maintained as Noah consistency]
+             SFCRUNOFF(I,J)                = SFCRUNOFF(I,J) + RUNSF * DT
+             UDRUNOFF (I,J)                = UDRUNOFF(I,J)  + RUNSB * DT
+             IF ( SALB > -999 ) THEN
+                ALBEDO(I,J)                = SALB
+             ENDIF
+             SNOWC    (I,J)                = FSNO
+             SMOIS    (I,      1:NSOIL,J)  = SMC   (      1:NSOIL)
+             SH2O     (I,      1:NSOIL,J)  = SMH2O (      1:NSOIL)
+             TSLB     (I,      1:NSOIL,J)  = STC   (      1:NSOIL)
+             SNOW     (I,J)                = SWE
+             SNOWH    (I,J)                = SNDPTH
+             CANWAT   (I,J)                = CANLIQ + CANICE
+             ACSNOW   (I,J)                = ACSNOW(I,J) +  PRECIP_IN(I,J) * FPICE
+             ACSNOM   (I,J)                = ACSNOM(I,J) + QSNBOT*DT + PONDING + PONDING1 + PONDING2
+             EMISS    (I,J)                = EMISSI
+             QSFC     (I,J)                = QSFC1D
+
+             ISNOWXY  (I,J)                = ISNOW
+             TVXY     (I,J)                = TV
+             TGXY     (I,J)                = TG
 #endif
 
 
@@ -1013,6 +1125,19 @@ CONTAINS
              RECHXY   (I,J)                = RECHXY(I,J) + RECH*1.E3 !RECHARGE TO THE WATER TABLE
              DEEPRECHXY(I,J)               = DEEPRECHXY(I,J) + DEEPRECH
              SMCWTDXY(I,J)                 = SMCWTD
+
+             ! irrigation
+             IRNUMSI(I,J)                  = IRCNTSI
+             IRNUMMI(I,J)                  = IRCNTMI
+             IRNUMFI(I,J)                  = IRCNTFI
+             IRWATSI(I,J)                  = IRAMTSI
+             IRWATMI(I,J)                  = IRAMTMI
+             IRWATFI(I,J)                  = IRAMTFI
+             IRSIVOL(I,J)                  = IRSIVOL(I,J)+(IRSIRATE*1000.0)
+             IRMIVOL(I,J)                  = IRMIVOL(I,J)+(IRMIRATE*1000.0)
+             IRFIVOL(I,J)                  = IRFIVOL(I,J)+(IRFIRATE*1000.0)
+             IRELOSS(I,J)                  = EIRR*DT
+             IRRSPLH(I,J)                  = FIRR
 
              GRAINXY  (I,J) = GRAIN !GRAIN XING
              GDDXY    (I,J) = GDD   !XING 
@@ -1235,6 +1360,19 @@ SUBROUTINE TRANSFER_MP_PARAMETERS(VEGTYPE,SOILTYPE,SLOPETYPE,SOILCOLOR,CROPTYPE,
     parameters%REFDK  = REFDK_TABLE
     parameters%REFKDT = REFKDT_TABLE
 
+!------------------------------------------------------------------------------------------!
+! Transfer irrigation parameters
+!------------------------------------------------------------------------------------------!
+    parameters%IRR_FRAC   = IRR_FRAC_TABLE      ! irrigation Fraction
+    parameters%IRR_HAR    = IRR_HAR_TABLE       ! number of days before harvest date to stop irrigation 
+    parameters%IRR_LAI    = IRR_LAI_TABLE       ! minimum lai to trigger irrigation
+    parameters%IRR_MAD    = IRR_MAD_TABLE       ! management allowable deficit (0-1)
+    parameters%FILOSS     = FILOSS_TABLE        ! fraction of flood irrigation loss (0-1) 
+    parameters%SPRIR_RATE = SPRIR_RATE_TABLE    ! mm/h, sprinkler irrigation rate
+    parameters%MICIR_RATE = MICIR_RATE_TABLE    ! mm/h, micro irrigation rate
+    parameters%FIRTFAC    = FIRTFAC_TABLE       ! flood application rate factor
+    parameters%IR_RAIN    = IR_RAIN_TABLE       ! maximum precipitation to stop irrigation trigger
+
 ! ----------------------------------------------------------------------
 ! Transfer GENPARM parameters
 ! ----------------------------------------------------------------------
@@ -1392,7 +1530,7 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
        t2mvxy   ,t2mbxy   ,chstarxy,            &
 !jref:end       
        NSOIL, restart,                 &
-       allowed_to_read , iopt_run,  iopt_crop,                        &
+       allowed_to_read , iopt_run,  iopt_crop, iopt_irr,                      &
        sf_urban_physics,                         &  ! urban scheme
        ids,ide, jds,jde, kds,kde,                &
        ims,ime, jms,jme, kms,kme,                &
@@ -1415,7 +1553,7 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
          &                           ims,ime, jms,jme, kms,kme,  &
          &                           its,ite, jts,jte, kts,kte
 
-    INTEGER, INTENT(IN)       ::     NSOIL, iopt_run, iopt_crop
+    INTEGER, INTENT(IN)       ::     NSOIL, iopt_run, iopt_crop, iopt_irr
 
     LOGICAL, INTENT(IN)       ::     restart,                    &
          &                           allowed_to_read
@@ -1539,6 +1677,7 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
     call read_mp_global_parameters()
     call read_mp_crop_parameters()
     call read_mp_optional_parameters()
+    if(iopt_irr  >= 1) call read_mp_irrigation_parameters()
 
     IF( .NOT. restart ) THEN
 
@@ -3172,33 +3311,3 @@ IF((SF_URBAN_PHYSICS == 2).OR.(SF_URBAN_PHYSICS == 3))THEN
     qfx(i,j)      = (1.-frc_urb2d(i,j))*qfx_rural(i,j)   + qfx_urb(i,j)
     lh(i,j)       = qfx(i,j)*xlv
     hfx(i,j)      = hfx_urb(i,j)                         + (1-frc_urb2d(i,j))*hfx_rural(i,j)      ![W/m/m]
-    sh_urb2d(i,j) = hfx_urb(i,j)/frc_urb2d(i,j)
-    lh_urb2d(i,j) = qfx_urb(i,j)*xlv
-    g_urb2d(i,j)  = grdflx_urb(i,j)
-    rn_urb2d(i,j) = rs_abs_urb(i,j)+emiss_urb(i,j)*glw(i,j)-rl_up_urb(i,j)
-    ust(i,j)      = (umom**2.+vmom**2.)**.25
-
-  ELSE
-
-    sh_urb2d(i,j)    = 0.
-    lh_urb2d(i,j)    = 0.
-    g_urb2d(i,j)     = 0.
-    rn_urb2d(i,j)    = 0.
-
-  ENDIF
-
-  enddo ! jloop
-  enddo ! iloop
-
-ENDIF ! SF_URBAN_PHYSICS == 2 or 3
-
-!--------------------------------------
-! URBAN BEP and BEM MODEL END
-!--------------------------------------
-
-
-END SUBROUTINE noahmp_urban
-
-!------------------------------------------------------------------------------------------
-!
-END MODULE module_sf_noahmpdrv
