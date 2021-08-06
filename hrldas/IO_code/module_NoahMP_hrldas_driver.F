@@ -82,6 +82,7 @@ module module_NoahMP_hrldas_driver
   INTEGER                                 ::  IOPT_CROP ! crop model option (0->none; 1->Liu et al.; 2->Gecros)
   INTEGER                                 ::  IOPT_IRR  ! irrigation scheme (0->none; >1 irrigation scheme ON)
   INTEGER                                 ::  IOPT_IRRM ! irrigation method (0->dynamic; 1-> sprinkler; 2-> micro; 3-> flood)
+  INTEGER                                 ::  IOPT_GWP  ! groundwater pumping option (0-> off 1-> on)
   INTEGER                                 ::  IOPT_INFDV!infiltration options for dynamic VIC (1->Philip; 2-> Green-Ampt;3->Smith-Parlange)
   INTEGER                                 ::  IOPT_TDRN ! drainage option (0->off; 1->simple scheme; 2->Hooghoudt's scheme)
   REAL,    ALLOCATABLE, DIMENSION(:,:,:)  ::  T_PHY     ! 3D atmospheric temperature valid at mid-levels [K]
@@ -622,6 +623,7 @@ module module_NoahMP_hrldas_driver
   integer            :: crop_option = 0
   integer            :: irrigation_option = 0
   integer            :: irrigation_method = 0
+  integer            :: irrigation_gw_pumping = 0
   integer            :: dvic_infiltration_option = 1
   integer            :: tile_drainage_option = 0
 
@@ -661,6 +663,7 @@ module module_NoahMP_hrldas_driver
        pcp_partition_option, tbot_option, temp_time_scheme_option, &
        glacier_option, surface_resistance_option, &
        irrigation_option, irrigation_method, dvic_infiltration_option, &
+       irrigation_gw_pumping, &
        tile_drainage_option,soil_data_option, pedotransfer_option, crop_option, &
        sf_urban_physics,use_wudapt_lcz,num_urban_hi,urban_atmosphere_thickness, &
        num_urban_ndm,num_urban_ng,num_urban_nwr ,num_urban_ngb , &
@@ -741,6 +744,7 @@ module module_NoahMP_hrldas_driver
   IOPT_CROP = crop_option
   IOPT_IRR  = irrigation_option
   IOPT_IRRM = irrigation_method
+  IOPT_GWP  = irrigation_gw_pumping
   IOPT_INFDV= dvic_infiltration_option
   IOPT_TDRN = tile_drainage_option
 
@@ -2480,7 +2484,8 @@ end subroutine land_driver_ini
                   IDVEG, IOPT_CRS, IOPT_BTR, IOPT_RUN,  IOPT_SFC,   IOPT_FRZ, &
 	       IOPT_INF, IOPT_RAD, IOPT_ALB, IOPT_SNF, IOPT_TBOT,   IOPT_STC, &
 	       IOPT_GLA, IOPT_RSF,IOPT_SOIL,IOPT_PEDO,IOPT_CROP,    IOPT_IRR, &
-               IOPT_IRRM,IOPT_INFDV,IOPT_TDRN,IZ0TLND, sf_urban_physics,      &
+              IOPT_IRRM, IOPT_GWP,IOPT_INFDV,IOPT_TDRN, IZ0TLND,              &
+              sf_urban_physics,                                               &
 	       SOILCOMP,  SOILCL1,  SOILCL2,   SOILCL3,  SOILCL4,             &
 		  T_PHY,  QV_CURR,    U_PHY,    V_PHY,    SWDOWN,     SWDDIR, &
                  SWDDIF,      GLW,                                            &
