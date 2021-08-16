@@ -28,6 +28,14 @@ module_sf_noahmplsm.o: ../../noahmp/src/module_sf_noahmplsm.F
 	$(COMPILERF90) -o $(@) -c $(F90FLAGS) $(FREESOURCE) module_sf_noahmplsm.f90
 	@echo ""
 
+module_sf_noahmp_groundwater.o: module_sf_noahmp_groundwater.F
+	@echo ""
+	$(RM) $(*).f90
+	$(CPP) $(CPPFLAGS) $(CPPHRLDAS) $(*).F > $(*).f90
+	$(COMPILERF90) -o $(@) -c $(F90FLAGS) $(FREESOURCE) -I ../../hrldas/MPP -I. \
+	-I../../wrf/phys -I../Utility_routines $(NETCDFMOD) $(*).f90
+	@echo ""
+
 .F.o:
 	@echo ""
 	$(RM) $(*).f90

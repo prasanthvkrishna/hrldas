@@ -2284,9 +2284,11 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
        END DO
 
 
-       itf=min0(ite,ide-1)
-       jtf=min0(jte,jde-1)
+       !itf=min0(ite,ide-1)
+       !jtf=min0(jte,jde-1)
 
+       itf=min0(ite,ide)
+       jtf=min0(jte,jde)
 
     WHERE(IVGTYP.NE.ISWATER_TABLE.AND.IVGTYP.NE.ISICE_TABLE)
          LANDMASK=1

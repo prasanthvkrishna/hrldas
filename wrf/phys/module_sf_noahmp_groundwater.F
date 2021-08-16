@@ -105,7 +105,7 @@ CONTAINS
 !Calculate lateral flow
 
     QLAT = 0.
-CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA       &
+    CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA       &
                         ,ids,ide,jds,jde,kds,kde                      &
                         ,ims,ime,jms,jme,kms,kme                      &
                         ,its,ite,jts,jte,kts,kte                      )
@@ -188,12 +188,14 @@ CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA       &
 
     DO J=jts,jte
        DO I=its,ite
+         IF(LANDMASK(I,J).GT.0)THEN
            QSLAT(I,J) = QSLAT(I,J) + QLAT(I,J)*1.E3
            QRFS(I,J) = QRFS(I,J) + QRF(I,J)*1.E3
            QSPRINGS(I,J) = QSPRINGS(I,J) + QSPRING(I,J)*1.E3
            RECH(I,J) = RECH(I,J) + DEEPRECH(I,J)*1.E3
 !zero out DEEPRECH
            DEEPRECH(I,J) =0.
+         END IF
        ENDDO
     ENDDO
 
@@ -207,6 +209,9 @@ END  SUBROUTINE WTABLE_mmf_noahmp
                            ,its,ite,jts,jte,kts,kte                      )
 ! ----------------------------------------------------------------------
   USE NOAHMP_TABLES, ONLY : DKSAT_TABLE
+#ifdef MPP_LAND
+        use module_mpp_land, only: mpp_land_com_real, mpp_land_com_integer, global_nx, global_ny, my_id
+#endif
 ! ----------------------------------------------------------------------
   IMPLICIT NONE
 ! ----------------------------------------------------------------------
@@ -222,9 +227,9 @@ END  SUBROUTINE WTABLE_mmf_noahmp
   REAL, DIMENSION( ims:ime , jms:jme ), INTENT(OUT) :: QLAT
 
 !local
-  INTEGER                              :: I, J, itsh,iteh,jtsh,jteh
+  INTEGER                              :: I, J, itsh,iteh,jtsh,jteh, nx, ny
   REAL                                 :: Q,KLAT
-  REAL, DIMENSION( ims:ime , jms:jme ) :: KCELL, HEAD
+  REAL, DIMENSION(ims-1:ime+1, jms-1:jme+1) :: KCELL, HEAD
 
   REAL, DIMENSION(19)      :: KLATFACTOR
   DATA KLATFACTOR /2.,3.,4.,10.,10.,12.,14.,20.,24.,28.,40.,48.,2.,0.,10.,0.,20.,2.,2./
@@ -232,39 +237,58 @@ END  SUBROUTINE WTABLE_mmf_noahmp
   REAL,    PARAMETER :: PI = 3.14159265 
   REAL,    PARAMETER :: FANGLE = 0.22754493   ! = 0.5*sqrt(0.5*tan(pi/8))
 
-itsh=max(its-1,ids)
-iteh=min(ite+1,ide-1)
-jtsh=max(jts-1,jds)
-jteh=min(jte+1,jde-1)
+! halo'ed arrays
+  integer, dimension(ims-1:ime+1, jms-1:jme+1) :: landmask_h
+  real,    dimension(ims-1:ime+1, jms-1:jme+1) :: area_h, qlat_h
 
+! create halo'ed local copies of tile vars
+  landmask_h(ims:ime, jms:jme) = landmask
+  area_h(ims:ime, jms:jme)     = area
 
-    DO J=jtsh,jteh
-       DO I=itsh,iteh
-           IF(FDEPTH(I,J).GT.0.)THEN
-                 KLAT = DKSAT_TABLE(ISLTYP(I,J)) * KLATFACTOR(ISLTYP(I,J))
-                 IF(WTD(I,J) < -1.5)THEN
-                     KCELL(I,J) = FDEPTH(I,J) * KLAT * EXP( (WTD(I,J) + 1.5) / FDEPTH(I,J) )
-                 ELSE
-                     KCELL(I,J) = KLAT * ( WTD(I,J) + 1.5 + FDEPTH(I,J) )  
-                 ENDIF
-           ELSE
-                 KCELL(i,J) = 0.
-           ENDIF
+  nx = ((ime-ims) + 1) + 2      ! include halos
+  ny = ((jme-jms) + 1) + 2      ! include halos
 
-           HEAD(I,J) = TOPO(I,J) + WTD(I,J)
-       ENDDO
-    ENDDO
+  !copy neighbor's values for landmask and area
+  call mpp_land_com_integer(landmask_h, nx, ny, 99)
+  call mpp_land_com_real(area_h, nx, ny, 99)
 
-itsh=max(its,ids+1)
-iteh=min(ite,ide-2)
-jtsh=max(jts,jds+1)
-jteh=min(jte,jde-2)
+  itsh=max(its,1)
+  iteh=min(ite,global_nx)
+  jtsh=max(jts,1)
+  jteh=min(jte,global_ny)
 
-    DO J=jtsh,jteh
-       DO I=itsh,iteh
-          IF(LANDMASK(I,J).GT.0)THEN
-                 Q=0.
-                             
+        DO J = jtsh, jteh
+            DO I = itsh, iteh
+                IF (fdepth(I, J) > 0.) THEN
+                    KLAT = DKSAT_TABLE(isltyp(I, J)) * KLATFACTOR(isltyp(I, J))
+                    IF (wtd(I, J) < -1.5) THEN
+                        kcell(I, J) = fdepth(I, J) * KLAT * EXP((wtd(I, J) + 1.5) / fdepth(I, J))
+                    ELSE
+                        kcell(I, J) = KLAT * (wtd(I, J) + 1.5 + fdepth(I, J))
+                    ENDIF
+                ELSE
+                    kcell(i, J) = 0.
+                ENDIF
+                HEAD(I, J) = topo(I, J) + wtd(I, J)
+            ENDDO
+        ENDDO
+
+! update neighbors with kcell/head calculation
+    call mpp_land_com_real(KCELL, nx, ny, 99)
+    call mpp_land_com_real(HEAD, nx, ny, 99)
+
+    itsh=max(its,2)
+    iteh=min(ite,global_nx-1)
+    jtsh=max(jts,2)
+    jteh=min(jte,global_ny-1)
+
+    qlat_h = 0
+
+    DO J = jtsh, jteh
+       DO I = itsh, iteh
+          IF (landmask_h(I, J) > 0) THEN
+                 Q  = 0.
+                   
                  Q  = Q + (KCELL(I-1,J+1)+KCELL(I,J)) &
                         * (HEAD(I-1,J+1)-HEAD(I,J))/SQRT(2.)
                              
@@ -289,12 +313,14 @@ jteh=min(jte,jde-2)
                  Q  = Q +  (KCELL(I+1,J-1)+KCELL(I,J)) &
                         * (HEAD(I+1,J-1)-HEAD(I,J))/SQRT(2.)
 
-
-                 QLAT(I,J) = FANGLE* Q * DELTAT / AREA(I,J)
+                 qlat_h(I, J) = FANGLE * Q * DELTAT / area_h(I, J)
           ENDIF
        ENDDO
     ENDDO
 
+! merge (sum) of all neighbor's edge Q's
+        call mpp_land_com_real(qlat_h, nx, ny, 1)
+        qlat = qlat_h(ims:ime, jms:jme)
 
 END  SUBROUTINE LATERALFLOW
 ! ==================================================================================================
