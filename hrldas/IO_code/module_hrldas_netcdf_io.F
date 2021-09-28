@@ -578,7 +578,9 @@ contains
        irfract,                                                           &   
        sifract,                                                           &
        mifract,                                                           &
-       fifract)
+       fifract,                                                           &
+       swfract,                                                           &
+       gwfract)
 
     implicit none
     character(len=*),                            intent(in)  :: agdata_flnm
@@ -587,6 +589,8 @@ contains
     real,    dimension(xstart:xend,ystart:yend), intent(out) :: sifract    
     real,    dimension(xstart:xend,ystart:yend), intent(out) :: mifract    
     real,    dimension(xstart:xend,ystart:yend), intent(out) :: fifract
+    real,    dimension(xstart:xend,ystart:yend), intent(out) :: swfract
+    real,    dimension(xstart:xend,ystart:yend), intent(out) :: gwfract
 
     character(len=24)                                        :: name
     integer                                                  :: ierr,iret
@@ -653,6 +657,25 @@ contains
     else
       write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
     endif
+
+! Get surface water irrigation water
+    name = "SWFRACT"
+    iret = nf90_inq_varid(ncid,  name,  varid)
+    if (iret == 0) then
+      ierr = nf90_get_var(ncid, varid, swfract, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+    else
+      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
+    endif
+
+! Get groundwater fraction for irrigation water
+    name = "GWFRACT"
+    iret = nf90_inq_varid(ncid,  name,  varid)
+    if (iret == 0) then
+      ierr = nf90_get_var(ncid, varid, gwfract, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+    else
+      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
+    endif
+
 
 ! Close the NetCDF file
     ierr = nf90_close(ncid)

@@ -216,6 +216,8 @@ module module_NoahMP_hrldas_driver
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: SIFRACT    ! sprinkler irrigation fraction
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: MIFRACT    ! micro irrigation fraction
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: FIFRACT    ! flood irrigation fraction   
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: SWFRACT    ! surface water fraction of irrigation
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: GWFRACT    ! groundwater fraction of irrigation
   INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: IRNUMSI    ! irrigation event number, Sprinkler
   INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: IRNUMMI    ! irrigation event number, Micro
   INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: IRNUMFI    ! irrigation event number, Flood 
@@ -228,7 +230,7 @@ module module_NoahMP_hrldas_driver
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRFIVOL    ! amount of irrigation by micro (mm)  
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRRSPLH    ! latent heating from sprinkler evaporation (w/m2)
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: LOCTIM     ! local time
-
+  
 ! OUT (with no Noah LSM equivalent) (as defined in WRF)
    
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  T2MVXY    ! 2m temperature of vegetation part
@@ -1142,6 +1144,8 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( SIFRACT   (XSTART:XEND,YSTART:YEND) )  ! sprinkler irrigation fraction
   ALLOCATE ( MIFRACT   (XSTART:XEND,YSTART:YEND) )  ! micro irrigation fraction
   ALLOCATE ( FIFRACT   (XSTART:XEND,YSTART:YEND) )  ! flood irrigation fraction   
+  ALLOCATE ( SWFRACT   (XSTART:XEND,YSTART:YEND) )  ! surface water fraction of irrigation 
+  ALLOCATE ( GWFRACT   (XSTART:XEND,YSTART:YEND) )  ! groundwater fraction of irrigation
   ALLOCATE ( IRNUMSI   (XSTART:XEND,YSTART:YEND) )  ! irrigation event number, Sprinkler
   ALLOCATE ( IRNUMMI   (XSTART:XEND,YSTART:YEND) )  ! irrigation event number, Micro
   ALLOCATE ( IRNUMFI   (XSTART:XEND,YSTART:YEND) )  ! irrigation event number, Flood 
@@ -1154,7 +1158,7 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( IRFIVOL   (XSTART:XEND,YSTART:YEND) )  ! amount of irrigation by micro (mm)
   ALLOCATE ( IRRSPLH   (XSTART:XEND,YSTART:YEND) )  ! latent heating from sprinkler evaporation (w/m2)
   ALLOCATE ( LOCTIM    (XSTART:XEND,YSTART:YEND) )  ! local time
-  
+
 ! OUT (with no Noah LSM equivalent) (as defined in WRF)
    
   ALLOCATE ( T2MVXY    (XSTART:XEND,YSTART:YEND) )  ! 2m temperature of vegetation part
@@ -1571,12 +1575,14 @@ ENDIF
   CROPTYPE   = undefined_real
 ! tile drainage
   QTDRAIN    = undefined_real
-  TD_FRACTION= undefined_real
+  TD_FRACTION= 0.0
 ! irrigation
   IRFRACT    = 0.0
   SIFRACT    = 0.0
   MIFRACT    = 0.0
   FIFRACT    = 0.0
+  SWFRACT    = 0.0
+  GWFRACT    = 0.0
   IRNUMSI    = 0
   IRNUMMI    = 0
   IRNUMFI    = 0
@@ -1589,7 +1595,7 @@ ENDIF
   IRFIVOL    = 0.0
   IRRSPLH    = 0.0
   LOCTIM     = undefined_real
- 
+
 IF(SF_URBAN_PHYSICS > 0 )  THEN  ! any urban model
   HRANG      = undefined_real
   DECLIN     = undefined_real
@@ -1759,7 +1765,8 @@ ENDIF
 !----------------------------------------------------------------------
   if (irrigation_option >= 1) then
       CALL READ_AGRICULTURE_DATA(AGDATA_FLNM, XSTART, XEND, YSTART, YEND, &
-                                 IRFRACT, SIFRACT, MIFRACT, FIFRACT)
+                                 IRFRACT, SIFRACT, MIFRACT, FIFRACT,      &
+                                 SWFRACT, GWFRACT)
   end if
   
 !------------------------------------------------------------------------
@@ -2175,6 +2182,7 @@ ENDIF
                  num_soil_layers, dzs, isltyp, ivgtyp, wtddt ,                  &
                  fdepthxy   , terrain , riverbedxy, eqzwt     ,                 &
                  rivercondxy, pexpxy  , areaxy    , zwtxy     ,                 &
+                 gwfract    , iopt_gwp, dx        ,                             &
                  smois      , sh2o    , smoiseq   , smcwtdxy  , deeprechxy,     &
                  rechxy     , qslatxy , qrfsxy    , qspringsxy,                 &
                  rechclim   ,                                                   &
@@ -2490,7 +2498,7 @@ end subroutine land_driver_ini
 		  T_PHY,  QV_CURR,    U_PHY,    V_PHY,    SWDOWN,     SWDDIR, &
                  SWDDIF,      GLW,                                            &
 		    P8W,   RAINBL,       SR,                                  &
-                  IRFRACT, SIFRACT,   MIFRACT,  FIFRACT,                      & ! IN : Irrigation fractions
+                  IRFRACT, SIFRACT, MIFRACT,  FIFRACT,   SWFRACT,    GWFRACT, & ! IN : Irrigation fractions
 		    TSK,      HFX,      QFX,       LH,    GRDFLX,     SMSTAV, &
 		 SMSTOT,SFCRUNOFF, UDRUNOFF,   ALBEDO,     SNOWC,      SMOIS, &
 		   SH2O,     TSLB,     SNOW,    SNOWH,    CANWAT,     ACSNOM, &
@@ -2607,6 +2615,7 @@ end subroutine land_driver_ini
                ISLTYP,      SMOISEQ,    DZS,        WTDDT,                &
                FDEPTHXY,    AREAXY,     TERRAIN,    ISURBAN,    IVGTYP,   &
                RIVERCONDXY, RIVERBEDXY, EQZWT,      PEXPXY,               &
+               GWFRACT,     IOPT_GWP,   DX,                               & ! gw pumping
                SMOIS,       SH2O,       SMCWTDXY,   ZWTXY,                &
 	       QRFXY,       DEEPRECHXY, QSPRINGXY,                        &
                QSLATXY,     QRFSXY,     QSPRINGSXY, RECHXY,               &

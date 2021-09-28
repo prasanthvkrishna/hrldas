@@ -23,7 +23,7 @@ CONTAINS
                    T3D,     QV3D,     U_PHY,    V_PHY,   SWDOWN,     SWDDIR,&
                 SWDDIF,      GLW,                                           & ! IN : Forcing
 		 P8W3D,PRECIP_IN,        SR,                                & ! IN : Forcing
-               IRFRACT,  SIFRACT,   MIFRACT,  FIFRACT,                      & ! IN : Noah MP only
+               IRFRACT,  SIFRACT,   MIFRACT,  FIFRACT,  SWFRACT,   GWFRACT, & ! IN : Noah MP only
                    TSK,      HFX,      QFX,        LH,   GRDFLX,    SMSTAV, & ! IN/OUT LSM eqv
                 SMSTOT,SFCRUNOFF, UDRUNOFF,    ALBEDO,    SNOWC,     SMOIS, & ! IN/OUT LSM eqv
 		  SH2O,     TSLB,     SNOW,     SNOWH,   CANWAT,    ACSNOM, & ! IN/OUT LSM eqv
@@ -322,6 +322,8 @@ CONTAINS
     REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(IN)    :: SIFRACT    ! sprinkler irrigation fraction
     REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(IN)    :: MIFRACT    ! micro irrigation fraction
     REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(IN)    :: FIFRACT    ! flood irrigation fraction   
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(IN)    :: SWFRACT    ! surface water fraction for irrigation
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(IN)    :: GWFRACT    ! groundwater fraction for irrigation
     INTEGER, DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRNUMSI    ! irrigation event number, Sprinkler
     INTEGER, DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRNUMMI    ! irrigation event number, Micro
     INTEGER, DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRNUMFI    ! irrigation event number, Flood 
@@ -340,6 +342,8 @@ CONTAINS
     REAL                                                            :: SIFAC      ! sprinkler irrigation fraction
     REAL                                                            :: MIFAC      ! micro irrigation fraction
     REAL                                                            :: FIFAC      ! flood irrigation fraction   
+    REAL                                                            :: SWFAC      ! surface water fraction for irrigation
+    REAL                                                            :: GWFAC      ! groundwater fraction for irrigation
     INTEGER                                                         :: IRCNTSI    ! irrigation event number, Sprinkler
     INTEGER                                                         :: IRCNTMI    ! irrigation event number, Micro
     INTEGER                                                         :: IRCNTFI    ! irrigation event number, Flood 
@@ -740,6 +744,8 @@ CONTAINS
        SIFAC                 = SIFRACT(I,J)    ! sprinkler irrigation fraction
        MIFAC                 = MIFRACT(I,J)    ! micro irrigation fraction
        FIFAC                 = FIFRACT(I,J)    ! flood irrigation fraction   
+       SWFAC                 = SWFRACT(I,J)    ! surface water fraction for irrigation
+       GWFAC                 = GWFRACT(I,J)    ! groundwater fraction for irrigation
        IRCNTSI               = IRNUMSI(I,J)    ! irrigation event number, Sprinkler
        IRCNTMI               = IRNUMMI(I,J)    ! irrigation event number, Micro
        IRCNTFI               = IRNUMFI(I,J)    ! irrigation event number, Flood 
@@ -1016,7 +1022,8 @@ CONTAINS
             QC      , SWDN    , LWDN    ,                               & ! IN : Forcing
 	    PRCPCONV, PRCPNONC, PRCPSHCV, PRCPSNOW, PRCPGRPL, PRCPHAIL, & ! IN : Forcing
             TBOT    , CO2PP   , O2PP    , FOLN    , FICEOLD , Z_ML    , & ! IN : Forcing
-            IRRFRA  , SIFAC   , MIFAC   , FIFAC   , LLANDUSE,           & ! IN : Irrigation: fractions	
+            IRRFRA  , SIFAC   , MIFAC   , FIFAC   , SWFAC   , GWFAC   , & ! IN : Irrigation: fractions
+            LLANDUSE,                                                   & ! IN : 	
             ALBOLD  , SNEQVO  ,                                         & ! IN/OUT : 
             STC     , SMH2O   , SMC     , TAH     , EAH     , FWET    , & ! IN/OUT : 
             CANLIQ  , CANICE  , TV      , TG      , QSFC1D  , QSNOW   , & ! IN/OUT : 
@@ -2218,6 +2225,7 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
     SUBROUTINE GROUNDWATER_INIT (   &
             &            GRID, NSOIL , DZS, ISLTYP, IVGTYP, WTDDT , &
             &            FDEPTH, TOPO, RIVERBED, EQWTD, RIVERCOND, PEXP , AREA ,WTD ,  &
+            &            GWFRACT,IOPT_GWP,DXX,                         &
             &            SMOIS,SH2O, SMOISEQ, SMCWTDXY, DEEPRECHXY, RECHXY ,  &
             &            QSLATXY, QRFSXY, QSPRINGSXY,                  &
             &            rechclim  ,                                   &
@@ -2248,11 +2256,14 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
          &                           its,ite, jts,jte, kts,kte
     TYPE(domain) , TARGET :: grid                             ! state
     INTEGER, INTENT(IN)                              :: NSOIL
+    INTEGER, INTENT(IN)                              :: IOPT_GWP
     REAL,   INTENT(IN)                               ::     WTDDT
+    REAL,   INTENT(IN)                               ::     DXX !gridsize
     REAL,    INTENT(IN), DIMENSION(1:NSOIL)          :: DZS
     INTEGER, INTENT(IN), DIMENSION(ims:ime, jms:jme) :: ISLTYP, IVGTYP
     REAL,    INTENT(IN), DIMENSION(ims:ime, jms:jme) :: FDEPTH, TOPO , AREA
     REAL,    INTENT(IN), DIMENSION(ims:ime, jms:jme) :: rechclim 
+    REAL,    INTENT(IN), DIMENSION(ims:ime, jms:jme) :: GWFRACT
     REAL,    INTENT(OUT), DIMENSION(ims:ime, jms:jme) :: RIVERCOND
     REAL,    INTENT(INOUT), DIMENSION(ims:ime, jms:jme) :: WTD, RIVERBED, EQWTD, PEXP
     REAL,     DIMENSION( ims:ime , 1:nsoil, jms:jme ), &
@@ -2320,6 +2331,7 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
 IF(NCOUNT.GT.0.OR.NITER.eq.1)THEN
     QLAT = 0.
     CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA       &
+                        ,GWFRACT,IOPT_GWP,DXX                         &
                         ,ids,ide,jds,jde,kds,kde                      & 
                         ,ims,ime,jms,jme,kms,kme                      &
                         ,its,ite,jts,jte,kts,kte                      )
@@ -2392,6 +2404,7 @@ EQWTD=WTD
 
     QLAT = 0.
     CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA       &
+                        ,GWFRACT,IOPT_GWP,DXX                         &
                         ,ids,ide,jds,jde,kds,kde                      & 
                         ,ims,ime,jms,jme,kms,kme                      &
                         ,its,ite,jts,jte,kts,kte                      )

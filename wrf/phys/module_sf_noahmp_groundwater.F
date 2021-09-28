@@ -13,6 +13,7 @@ CONTAINS
                                 ISLTYP    ,SMOISEQ  ,DZS     ,WTDDT                  ,& !in
                                 FDEPTH    ,AREA     ,TOPO    ,ISURBAN ,IVGTYP        ,& !in
                                 RIVERCOND ,RIVERBED ,EQWTD   ,PEXP                   ,& !in
+                                GWFRACT   ,IOPT_GWP ,DX                              ,& !in: gw pumping
                                 SMOIS     ,SH2OXY   ,SMCWTD  ,WTD  ,QRF              ,& !inout
                                 DEEPRECH  ,QSPRING  ,QSLAT   ,QRFS ,QSPRINGS  ,RECH  ,& !inout
                                 ids,ide, jds,jde, kds,kde,                    &
@@ -32,6 +33,8 @@ CONTAINS
     REAL,   INTENT(IN)        ::     WTDDT
     REAL,   INTENT(IN)        ::     XICE_THRESHOLD
     INTEGER,  INTENT(IN   )   ::     ISICE
+    REAL,     INTENT(IN   )   ::     DX     
+    INTEGER,  INTENT(IN   )   ::     IOPT_GWP
     REAL,    DIMENSION( ims:ime, jms:jme )                     , &
          &   INTENT(IN   )    ::                          XLAND, &
                                                            XICE
@@ -50,8 +53,9 @@ CONTAINS
                                                           EQWTD, &
                                                            PEXP, &
                                                        RIVERBED, &
-                                                      RIVERCOND
-
+                                                      RIVERCOND, &
+                                                        GWFRACT
+                                                       
 ! IN and OUT 
 
     REAL,     DIMENSION( ims:ime , 1:nsoil, jms:jme ), &
@@ -85,7 +89,7 @@ CONTAINS
                                                 ,WPLUS,WMINUS
   REAL,      DIMENSION( ims:ime, jms:jme )    :: QLAT
   INTEGER,   DIMENSION( ims:ime, jms:jme )    :: LANDMASK !-1 for water (ice or no ice) and glacial areas, 1 for land where the LSM does its soil moisture calculations.
-  
+
   REAL :: BEXP,DKSAT,PSISAT,SMCMAX,SMCWLT
 
     DELTAT = WTDDT * 60. !timestep in seconds for this calculation
@@ -105,7 +109,8 @@ CONTAINS
 !Calculate lateral flow
 
     QLAT = 0.
-    CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA       &
+    CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA &
+                        ,GWFRACT,IOPT_GWP,DX                          &
                         ,ids,ide,jds,jde,kds,kde                      &
                         ,ims,ime,jms,jme,kms,kme                      &
                         ,its,ite,jts,jte,kts,kte                      )
@@ -122,7 +127,7 @@ CONTAINS
                RCOND = RIVERCOND(I,J)       
              ENDIF
              QRF(I,J) = RCOND * (WTD(I,J)-RIVERBED(I,J)) * DELTAT/AREA(I,J)
-!for now, dont allow it to go from river to groundwater
+             !for now, dont allow it to go from river to groundwater
              QRF(I,J) = MAX(QRF(I,J),0.)
           ELSE
              QRF(I,J) = 0.
@@ -204,6 +209,7 @@ END  SUBROUTINE WTABLE_mmf_noahmp
 ! ==================================================================================================
 ! ----------------------------------------------------------------------
   SUBROUTINE LATERALFLOW  (ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA &
+                           ,GWFRACT,IOPT_GWP,DX                          &
                            ,ids,ide,jds,jde,kds,kde                      &
                            ,ims,ime,jms,jme,kms,kme                      &
                            ,its,ite,jts,jte,kts,kte                      )
@@ -214,22 +220,26 @@ END  SUBROUTINE WTABLE_mmf_noahmp
 #endif
 ! ----------------------------------------------------------------------
   IMPLICIT NONE
-! ----------------------------------------------------------------------
+!   ----------------------------------------------------------------------
 ! input
   INTEGER,  INTENT(IN   )   ::     ids,ide, jds,jde, kds,kde,  &
        &                           ims,ime, jms,jme, kms,kme,  &
        &                           its,ite, jts,jte, kts,kte
+  INTEGER,  INTENT(IN   )   ::     IOPT_GWP
+  REAL,     INTENT(IN   )   ::     DX
   REAL                                  , INTENT(IN) :: DELTAT                                 
   INTEGER, DIMENSION( ims:ime, jms:jme ), INTENT(IN) :: ISLTYP, LANDMASK
   REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN) :: FDEPTH,WTD,TOPO,AREA
-
+  REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN) :: GWFRACT
 !output
   REAL, DIMENSION( ims:ime , jms:jme ), INTENT(OUT) :: QLAT
 
 !local
   INTEGER                              :: I, J, itsh,iteh,jtsh,jteh, nx, ny
-  REAL                                 :: Q,KLAT
+  REAL                                 :: Q,KLAT,QP
   REAL, DIMENSION(ims-1:ime+1, jms-1:jme+1) :: KCELL, HEAD
+  INTEGER,   DIMENSION(ims-1:ime+1, jms-1:jme+1) :: PUMP_CELL ! grid with gw pumping or not
+                                                              ! 0-->no; 1--> yes
 
   REAL, DIMENSION(19)      :: KLATFACTOR
   DATA KLATFACTOR /2.,3.,4.,10.,10.,12.,14.,20.,24.,28.,40.,48.,2.,0.,10.,0.,20.,2.,2./
@@ -270,57 +280,106 @@ END  SUBROUTINE WTABLE_mmf_noahmp
                     kcell(i, J) = 0.
                 ENDIF
                 HEAD(I, J) = topo(I, J) + wtd(I, J)
+
+                IF((GWFRACT(I,J) .GT. 0.0) .AND. (IOPT_GWP==1))THEN
+                    PUMP_CELL(I,J)=1
+                ELSE
+                    PUMP_CELL(I,J)=0
+                ENDIF
             ENDDO
         ENDDO
 
-! update neighbors with kcell/head calculation
+! update neighbors with kcell/head/pump_cell calculation
     call mpp_land_com_real(KCELL, nx, ny, 99)
     call mpp_land_com_real(HEAD, nx, ny, 99)
+    call mpp_land_com_integer(PUMP_CELL, nx, ny, 99)
 
     itsh=max(its,2)
     iteh=min(ite,global_nx-1)
     jtsh=max(jts,2)
     jteh=min(jte,global_ny-1)
 
-    qlat_h = 0
+    
+    qlat_h = 0.
 
     DO J = jtsh, jteh
        DO I = itsh, iteh
           IF (landmask_h(I, J) > 0) THEN
-                 Q  = 0.
-                   
-                 Q  = Q + (KCELL(I-1,J+1)+KCELL(I,J)) &
-                        * (HEAD(I-1,J+1)-HEAD(I,J))/SQRT(2.)
-                             
-                 Q  = Q +  (KCELL(I-1,J)+KCELL(I,J)) &
-                        *  (HEAD(I-1,J)-HEAD(I,J))
+                 Q  = 0. ! non-pumping cell
+                 QP = 0. ! pumping cell
+                 IF((PUMP_CELL(I-1,J+1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
+                   QP  = QP + (PI*0.5*(KCELL(I-1,J+1)+KCELL(I,J)))&
+                            * (HEAD(I-1,J+1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))
+                 ELSE 
+                    Q  = Q  + (KCELL(I-1,J+1)+KCELL(I,J)) &
+                            * (HEAD(I-1,J+1)-HEAD(I,J))/SQRT(2.)
+                 ENDIF
 
-                 Q  = Q +  (KCELL(I-1,J-1)+KCELL(I,J)) &
-                        * (HEAD(I-1,J-1)-HEAD(I,J))/SQRT(2.)
+                 IF((PUMP_CELL(I-1,J)==1) .OR. (PUMP_CELL(I,J)==1))THEN
+                   QP  = QP + (PI*0.5*(KCELL(I-1,J)+KCELL(I,J)))&
+                            * (HEAD(I-1,J)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                 ELSE
+                    Q  = Q  +  (KCELL(I-1,J)+KCELL(I,J)) &
+                            *  (HEAD(I-1,J)-HEAD(I,J))
+                 ENDIF
 
-                 Q  = Q +  (KCELL(I,J+1)+KCELL(I,J)) &
-                        * (HEAD(I,J+1)-HEAD(I,J))
+                 IF((PUMP_CELL(I-1,J-1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
+                   QP  = QP + (PI*0.5*(KCELL(I-1,J-1)+KCELL(I,J)))&
+                            * (HEAD(I-1,J-1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))
+                 ELSE
+                    Q  = Q  +  (KCELL(I-1,J-1)+KCELL(I,J)) &
+                            * (HEAD(I-1,J-1)-HEAD(I,J))/SQRT(2.)
+                 ENDIF
 
-                 Q  = Q +  (KCELL(I,J-1)+KCELL(I,J)) &
-                        * (HEAD(I,J-1)-HEAD(I,J))
+                 IF((PUMP_CELL(I,J+1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
+                   QP  = QP + (PI*0.5*(KCELL(I,J+1)+KCELL(I,J)))&
+                            * (HEAD(I,J+1)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                 ELSE
+                    Q  = Q  +  (KCELL(I,J+1)+KCELL(I,J)) &
+                            * (HEAD(I,J+1)-HEAD(I,J))
+                 ENDIF
 
-                 Q  = Q +  (KCELL(I+1,J+1)+KCELL(I,J)) &
-                        * (HEAD(I+1,J+1)-HEAD(I,J))/SQRT(2.)
-  
-                 Q  = Q +  (KCELL(I+1,J)+KCELL(I,J)) &
-                        * (HEAD(I+1,J)-HEAD(I,J))
+                 IF((PUMP_CELL(I,J-1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
+                   QP  = QP + (PI*0.5*(KCELL(I,J-1)+KCELL(I,J)))&
+                            * (HEAD(I,J-1)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                 ELSE
+                    Q  = Q  +  (KCELL(I,J-1)+KCELL(I,J)) &
+                            * (HEAD(I,J-1)-HEAD(I,J))
+                 ENDIF
 
-                 Q  = Q +  (KCELL(I+1,J-1)+KCELL(I,J)) &
-                        * (HEAD(I+1,J-1)-HEAD(I,J))/SQRT(2.)
+                 IF((PUMP_CELL(I+1,J+1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
+                   QP  = QP + (PI*0.5*(KCELL(I+1,J+1)+KCELL(I,J)))&
+                            * (HEAD(I+1,J+1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))                 
+                 ELSE
+                    Q  = Q  +  (KCELL(I+1,J+1)+KCELL(I,J)) &
+                            * (HEAD(I+1,J+1)-HEAD(I,J))/SQRT(2.)
+                 ENDIF
 
-                 qlat_h(I, J) = FANGLE * Q * DELTAT / area_h(I, J)
+                 IF((PUMP_CELL(I+1,J)==1) .OR. (PUMP_CELL(I,J)==1))THEN
+                   QP  = QP + (PI*0.5*(KCELL(I+1,J)+KCELL(I,J)))&
+                            * (HEAD(I+1,J)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                 ELSE
+                    Q  = Q  +  (KCELL(I+1,J)+KCELL(I,J)) &
+                            * (HEAD(I+1,J)-HEAD(I,J))
+                 ENDIF
+                 
+                 IF((PUMP_CELL(I+1,J-1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
+                   QP  = QP + (PI*0.5*(KCELL(I+1,J-1)+KCELL(I,J)))&
+                            * (HEAD(I+1,J-1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))
+                 ELSE                 
+                    Q  = Q  +  (KCELL(I+1,J-1)+KCELL(I,J)) &
+                            * (HEAD(I+1,J-1)-HEAD(I,J))/SQRT(2.)
+                 ENDIF
+                 
+                 ! Here, Q is in m3/s. To convert to m, divide it by area of the grid cell.
+                 qlat_h(I, J)  = (FANGLE * Q * DELTAT / area_h(I, J)) + (QP * DELTAT/ area_h(I, J))
           ENDIF
        ENDDO
     ENDDO
 
 ! merge (sum) of all neighbor's edge Q's
         call mpp_land_com_real(qlat_h, nx, ny, 1)
-        qlat = qlat_h(ims:ime, jms:jme)
+        qlat = qlat_h(ims:ime, jms:jme) 
 
 END  SUBROUTINE LATERALFLOW
 ! ==================================================================================================
