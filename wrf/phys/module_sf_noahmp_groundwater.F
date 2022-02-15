@@ -13,15 +13,16 @@ CONTAINS
                                 ISLTYP    ,SMOISEQ  ,DZS     ,WTDDT                  ,& !in
                                 FDEPTH    ,AREA     ,TOPO    ,ISURBAN ,IVGTYP        ,& !in
                                 RIVERCOND ,RIVERBED ,EQWTD   ,PEXP                   ,& !in
-                                GWFRACT   ,IOPT_GWP ,DX                              ,& !in: gw pumping
+                                GWFRACT   ,IOPT_GWP ,DX      ,IRRGWVOL               ,& !in: gw pumping
                                 SMOIS     ,SH2OXY   ,SMCWTD  ,WTD  ,QRF              ,& !inout
                                 DEEPRECH  ,QSPRING  ,QSLAT   ,QRFS ,QSPRINGS  ,RECH  ,& !inout
+                                QLATXY    ,                                   &
                                 ids,ide, jds,jde, kds,kde,                    &
                                 ims,ime, jms,jme, kms,kme,                    &
                                 its,ite, jts,jte, kts,kte                     )
 
 ! ----------------------------------------------------------------------
-  USE NOAHMP_TABLES, ONLY: BEXP_TABLE, DKSAT_TABLE, SMCMAX_TABLE,PSISAT_TABLE, SMCWLT_TABLE
+  USE NOAHMP_TABLES, ONLY: BEXP_TABLE, DKSAT_TABLE, SMCMAX_TABLE,PSISAT_TABLE, SMCWLT_TABLE, SY_TABLE
 ! ----------------------------------------------------------------------
   IMPLICIT NONE
 ! ----------------------------------------------------------------------
@@ -54,7 +55,8 @@ CONTAINS
                                                            PEXP, &
                                                        RIVERBED, &
                                                       RIVERCOND, &
-                                                        GWFRACT
+                                                        GWFRACT, &
+                                                       IRRGWVOL
                                                        
 ! IN and OUT 
 
@@ -68,6 +70,7 @@ CONTAINS
                                                          SMCWTD, &
                                                        DEEPRECH, &
                                                           QSLAT, &
+                                                         QLATXY, &
                                                            QRFS, &
                                                        QSPRINGS, &
                                                            RECH
@@ -90,7 +93,7 @@ CONTAINS
   REAL,      DIMENSION( ims:ime, jms:jme )    :: QLAT
   INTEGER,   DIMENSION( ims:ime, jms:jme )    :: LANDMASK !-1 for water (ice or no ice) and glacial areas, 1 for land where the LSM does its soil moisture calculations.
 
-  REAL :: BEXP,DKSAT,PSISAT,SMCMAX,SMCWLT
+  REAL :: BEXP,DKSAT,PSISAT,SMCMAX,SMCWLT,SY
 
     DELTAT = WTDDT * 60. !timestep in seconds for this calculation
 
@@ -145,6 +148,7 @@ CONTAINS
             PSISAT = -1.0*PSISAT_TABLE (ISLTYP(I,J))
             SMCMAX = SMCMAX_TABLE (ISLTYP(I,J))
             SMCWLT = SMCWLT_TABLE (ISLTYP(I,J))
+            SY     = SY_TABLE (ISLTYP(I,J))
 
              IF(IVGTYP(I,J)==ISURBAN)THEN
                  SMCMAX = 0.45
@@ -170,7 +174,7 @@ CONTAINS
 
 
 !Total water flux to or from groundwater in the cell
-             TOTWATER = QLAT(I,J) - QRF(I,J) + DEEPRECH(I,J)
+             TOTWATER = QLAT(I,J) - QRF(I,J) + DEEPRECH(I,J) - IRRGWVOL(I,J)/SY
 
              SMC(1:NSOIL) = SMOIS(I,1:NSOIL,J)
              SH2O(1:NSOIL) = SH2OXY(I,1:NSOIL,J)
@@ -194,6 +198,7 @@ CONTAINS
     DO J=jts,jte
        DO I=its,ite
          IF(LANDMASK(I,J).GT.0)THEN
+           QLATXY(I,J) = QLAT(I,J)*1.E3
            QSLAT(I,J) = QSLAT(I,J) + QLAT(I,J)*1.E3
            QRFS(I,J) = QRFS(I,J) + QRF(I,J)*1.E3
            QSPRINGS(I,J) = QSPRINGS(I,J) + QSPRING(I,J)*1.E3
@@ -305,6 +310,7 @@ END  SUBROUTINE WTABLE_mmf_noahmp
     DO J = jtsh, jteh
        DO I = itsh, iteh
           IF (landmask_h(I, J) > 0) THEN
+
                  Q  = 0. ! non-pumping cell
                  QP = 0. ! pumping cell
                  IF((PUMP_CELL(I-1,J+1)==1) .OR. (PUMP_CELL(I,J)==1))THEN

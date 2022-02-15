@@ -82,6 +82,7 @@ module module_NoahMP_hrldas_driver
   INTEGER                                 ::  IOPT_CROP ! crop model option (0->none; 1->Liu et al.; 2->Gecros)
   INTEGER                                 ::  IOPT_IRR  ! irrigation scheme (0->none; >1 irrigation scheme ON)
   INTEGER                                 ::  IOPT_IRRM ! irrigation method (0->dynamic; 1-> sprinkler; 2-> micro; 3-> flood)
+  INTEGER                                 ::  IOPT_IRRP ! irrigation param option (0-> from MPTABLE 1-> from 2D param file)
   INTEGER                                 ::  IOPT_GWP  ! groundwater pumping option (0-> off 1-> on)
   INTEGER                                 ::  IOPT_INFDV!infiltration options for dynamic VIC (1->Philip; 2-> Green-Ampt;3->Smith-Parlange)
   INTEGER                                 ::  IOPT_TDRN ! drainage option (0->off; 1->simple scheme; 2->Hooghoudt's scheme)
@@ -120,6 +121,15 @@ module module_NoahMP_hrldas_driver
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  soilcl2    ! Soil texture class with depth
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  soilcl3    ! Soil texture class with depth
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  soilcl4    ! Soil texture class with depth
+  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  bvic_2d    ! VIC model infiltration parameter [-] opt_run=6
+  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  axaj_2D    ! Tension water distribution inflection parameter [-] opt_run=7
+  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  bxaj_2D    ! Tension water distribution shape parameter [-] opt_run=7
+  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  xxaj_2D    ! Free water distribution shape parameter [-] opt_run=7
+  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  bdvic_2d   ! VIC model infiltration parameter [-] opt_run=8
+  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  gdvic_2d   ! Mean Capillary Drive (m) for infiltration models opt_run=8
+  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  bbvic_2d   ! DVIC heterogeniety parameter for infiltration [-] opt_run=8
+
+  ! irrigation
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  irr_frac_2D! irrigation Fraction
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  irr_har_2D ! number of days before harvest date to stop irrigation 
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  irr_lai_2D ! Minimum lai to trigger irrigation
@@ -129,13 +139,8 @@ module module_NoahMP_hrldas_driver
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  micir_rate_2D! mm/h, micro irrigation rate
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  firtfac_2D ! flood application rate factor
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  ir_rain_2D ! maximum precipitation to stop irrigation trigger
-  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  bvic_2d    ! VIC model infiltration parameter [-] opt_run=6
-  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  axaj_2D    ! Tension water distribution inflection parameter [-] opt_run=7
-  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  bxaj_2D    ! Tension water distribution shape parameter [-] opt_run=7
-  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  xxaj_2D    ! Free water distribution shape parameter [-] opt_run=7
-  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  bdvic_2d   ! VIC model infiltration parameter [-] opt_run=8
-  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  gdvic_2d   ! Mean Capillary Drive (m) for infiltration models opt_run=8
-  REAL, ALLOCATABLE, DIMENSION(:,:)       ::  bbvic_2d   ! DVIC heterogeniety parameter for infiltration [-] opt_run=8
+
+  ! tile drainage
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  KLAT_FAC   ! factor multiplier to hydraulic conductivity
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  TDSMC_FAC  ! factor multiplier to field capacity
   REAL, ALLOCATABLE, DIMENSION(:,:)       ::  TD_DC      ! drainage coefficient for simple
@@ -212,24 +217,31 @@ module module_NoahMP_hrldas_driver
   REAL,    ALLOCATABLE, DIMENSION(:,:,:)  ::  gecros_state   ! gecros crop model packed state vector
 
 !irrigation
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRFRACT    ! irrigation fraction
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: SIFRACT    ! sprinkler irrigation fraction
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: MIFRACT    ! micro irrigation fraction
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: FIFRACT    ! flood irrigation fraction   
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: SWFRACT    ! surface water fraction of irrigation
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: GWFRACT    ! groundwater fraction of irrigation
-  INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: IRNUMSI    ! irrigation event number, Sprinkler
-  INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: IRNUMMI    ! irrigation event number, Micro
-  INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: IRNUMFI    ! irrigation event number, Flood 
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRWATSI    ! irrigation water amount [m] to be applied, Sprinkler
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRWATMI    ! irrigation water amount [m] to be applied, Micro
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRWATFI    ! irrigation water amount [m] to be applied, Flood
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRELOSS    ! loss of irrigation water to evaporation,sprinkler [m/timestep]
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRSIVOL    ! amount of irrigation by sprinkler (mm)
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRMIVOL    ! amount of irrigation by micro (mm)
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRFIVOL    ! amount of irrigation by micro (mm)  
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRRSPLH    ! latent heating from sprinkler evaporation (w/m2)
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: LOCTIM     ! local time
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRFRACT      ! irrigation fraction
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: SIFRACT      ! sprinkler irrigation fraction
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: MIFRACT      ! micro irrigation fraction
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: FIFRACT      ! flood irrigation fraction   
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: SWFRACT      ! surface water fraction of irrigation
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: GWFRACT      ! groundwater fraction of irrigation
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: RICELU       ! paddy rice land use map
+  INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: IRNUMSI      ! irrigation event number, Sprinkler
+  INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: IRNUMMI      ! irrigation event number, Micro
+  INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: IRNUMFI      ! irrigation event number, Flood 
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRWATSI      ! irrigation water amount [m] to be applied, Sprinkler
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRWATMI      ! irrigation water amount [m] to be applied, Micro
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRWATFI      ! irrigation water amount [m] to be applied, Flood
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRELOSS      ! loss of irrigation water to evaporation,sprinkler [m/timestep]
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRSIVOL      ! amount of irrigation by sprinkler (mm)
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRMIVOL      ! amount of irrigation by micro (mm)
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRFIVOL      ! amount of irrigation by micro (mm)  
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRRGWVOL     ! amount of irrigation by groundwater (m)  
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRRSPLH      ! latent heating from sprinkler evaporation (w/m2)
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: RICE_PONDING ! water ponding depth in rice field (mm)
+  INTEGER, ALLOCATABLE, DIMENSION(:,:)    :: RICE_DAY     ! day since rice plant is active
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: LOCTIM       ! local time 
+! tenday LAI and FVEG
+  REAL,    ALLOCATABLE, DIMENSION(:,:,:)  :: LAI10DAY     ! ten day leaf area index
+  REAL,    ALLOCATABLE, DIMENSION(:,:,:)  :: FVEG10DAY    ! ten day vegetation fraction
   
 ! OUT (with no Noah LSM equivalent) (as defined in WRF)
    
@@ -310,7 +322,8 @@ module module_NoahMP_hrldas_driver
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QSPRINGSXY
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QRFXY
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QSPRINGXY
-  REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QSLATXY
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QSLATXY ! accumulated
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QLATXY  ! time-step
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  RECHCLIM
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  RIVERMASK
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  NONRIVERXY
@@ -506,10 +519,10 @@ module module_NoahMP_hrldas_driver
     INTEGER, PARAMETER                  :: NSNOW = 3    ! number of snow layers fixed to 3
     REAL, PARAMETER                     :: undefined_real = 9.9692099683868690E36 ! NetCDF float   FillValue
     INTEGER, PARAMETER                  :: undefined_int = -2147483647            ! NetCDF integer FillValue
-    LOGICAL                             :: update_lai, update_veg
+    LOGICAL                             :: update_lai, update_veg 
     INTEGER                             :: spinup_loop
     LOGICAL                             :: reset_spinup_date
-
+    INTEGER, PARAMETER                  :: TENDAY = 36
 !---------------------------------------------------------------------
 !  File naming, parallel
 !---------------------------------------------------------------------
@@ -626,6 +639,7 @@ module module_NoahMP_hrldas_driver
   integer            :: irrigation_option = 0
   integer            :: irrigation_method = 0
   integer            :: irrigation_gw_pumping = 0
+  integer            :: irrigation_param_option = 0
   integer            :: dvic_infiltration_option = 1
   integer            :: tile_drainage_option = 0
 
@@ -640,6 +654,7 @@ module module_NoahMP_hrldas_driver
   character(len=256) :: external_lai_filename_template = " "
   character(len=256) :: agdata_flnm = " "
   character(len=256) :: tdinput_flnm = " "
+  character(len=256) :: irrigation_param_file
   integer            :: xstart = 1
   integer            :: ystart = 1
   integer            ::   xend = 0
@@ -666,6 +681,7 @@ module module_NoahMP_hrldas_driver
        glacier_option, surface_resistance_option, &
        irrigation_option, irrigation_method, dvic_infiltration_option, &
        irrigation_gw_pumping, &
+       irrigation_param_option, &
        tile_drainage_option,soil_data_option, pedotransfer_option, crop_option, &
        sf_urban_physics,use_wudapt_lcz,num_urban_hi,urban_atmosphere_thickness, &
        num_urban_ndm,num_urban_ng,num_urban_nwr ,num_urban_ngb , &
@@ -673,6 +689,7 @@ module module_NoahMP_hrldas_driver
        split_output_count, & 
        khour, kday, zlvl, hrldas_setup_file, &
        spatial_filename, agdata_flnm, tdinput_flnm, &
+       irrigation_param_file, &
        external_veg_filename_template, external_lai_filename_template, &
        xstart, xend, ystart, yend
 
@@ -747,6 +764,7 @@ module module_NoahMP_hrldas_driver
   IOPT_IRR  = irrigation_option
   IOPT_IRRM = irrigation_method
   IOPT_GWP  = irrigation_gw_pumping
+  IOPT_IRRP = irrigation_param_option
   IOPT_INFDV= dvic_infiltration_option
   IOPT_TDRN = tile_drainage_option
 
@@ -1049,6 +1067,13 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( soilcl2    (XSTART:XEND,YSTART:YEND) )            ! Soil texture class with depth
   ALLOCATE ( soilcl3    (XSTART:XEND,YSTART:YEND) )            ! Soil texture class with depth
   ALLOCATE ( soilcl4    (XSTART:XEND,YSTART:YEND) )            ! Soil texture class with depth
+  ALLOCATE ( bvic_2D    (XSTART:XEND,YSTART:YEND) )            ! VIC model infiltration parameter [-]
+  ALLOCATE ( axaj_2D    (XSTART:XEND,YSTART:YEND) )            ! Tension water distribution inflection parameter [-]
+  ALLOCATE ( bxaj_2D    (XSTART:XEND,YSTART:YEND) )            ! Tension water distribution shape parameter [-]
+  ALLOCATE ( xxaj_2D    (XSTART:XEND,YSTART:YEND) )            ! Free water distribution shape parameter [-]
+  ALLOCATE ( bdvic_2D   (XSTART:XEND,YSTART:YEND) )            ! DVIC model infiltration parameter [-]
+  ALLOCATE ( gdvic_2D   (XSTART:XEND,YSTART:YEND) )            ! Mean Capillary Drive (m) for infiltration models
+  ALLOCATE ( bbvic_2D   (XSTART:XEND,YSTART:YEND) )            ! DVIC heterogeniety parameter for infiltration [-]
   ALLOCATE ( irr_frac_2D(XSTART:XEND,YSTART:YEND) )            ! irrigation Fraction
   ALLOCATE ( irr_har_2D (XSTART:XEND,YSTART:YEND) )            ! number of days before harvest date to stop irrigation 
   ALLOCATE ( irr_lai_2D (XSTART:XEND,YSTART:YEND) )            ! Minimum lai to trigger irrigation
@@ -1058,13 +1083,6 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( micir_rate_2D(XSTART:XEND,YSTART:YEND) )          ! mm/h, micro irrigation rate
   ALLOCATE ( firtfac_2D (XSTART:XEND,YSTART:YEND) )            ! flood application rate factor
   ALLOCATE ( ir_rain_2D (XSTART:XEND,YSTART:YEND) )            ! maximum precipitation to stop irrigation trigger
-  ALLOCATE ( bvic_2D    (XSTART:XEND,YSTART:YEND) )            ! VIC model infiltration parameter [-]
-  ALLOCATE ( axaj_2D    (XSTART:XEND,YSTART:YEND) )            ! Tension water distribution inflection parameter [-]
-  ALLOCATE ( bxaj_2D    (XSTART:XEND,YSTART:YEND) )            ! Tension water distribution shape parameter [-]
-  ALLOCATE ( xxaj_2D    (XSTART:XEND,YSTART:YEND) )            ! Free water distribution shape parameter [-]
-  ALLOCATE ( bdvic_2D   (XSTART:XEND,YSTART:YEND) )            ! DVIC model infiltration parameter [-]
-  ALLOCATE ( gdvic_2D   (XSTART:XEND,YSTART:YEND) )            ! Mean Capillary Drive (m) for infiltration models
-  ALLOCATE ( bbvic_2D   (XSTART:XEND,YSTART:YEND) )            ! DVIC heterogeniety parameter for infiltration [-]
   ALLOCATE ( KLAT_FAC   (XSTART:XEND,YSTART:YEND) )            ! factor multiplier to hydraulic conductivity
   ALLOCATE ( TDSMC_FAC  (XSTART:XEND,YSTART:YEND) )            ! factor multiplier to field capacity
   ALLOCATE ( TD_DC      (XSTART:XEND,YSTART:YEND) )            ! drainage coefficient for simple
@@ -1139,6 +1157,7 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( TAUSSXY   (XSTART:XEND,YSTART:YEND) )  ! snow age factor
 
   ALLOCATE ( gecros_state(XSTART:XEND,60,YSTART:YEND) )   ! gecros crop model packed state vector
+
 ! irrigation
   ALLOCATE ( IRFRACT   (XSTART:XEND,YSTART:YEND) )  ! irrigation fraction
   ALLOCATE ( SIFRACT   (XSTART:XEND,YSTART:YEND) )  ! sprinkler irrigation fraction
@@ -1146,6 +1165,7 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( FIFRACT   (XSTART:XEND,YSTART:YEND) )  ! flood irrigation fraction   
   ALLOCATE ( SWFRACT   (XSTART:XEND,YSTART:YEND) )  ! surface water fraction of irrigation 
   ALLOCATE ( GWFRACT   (XSTART:XEND,YSTART:YEND) )  ! groundwater fraction of irrigation
+  ALLOCATE ( RICELU    (XSTART:XEND,YSTART:YEND) )  ! rice land use map
   ALLOCATE ( IRNUMSI   (XSTART:XEND,YSTART:YEND) )  ! irrigation event number, Sprinkler
   ALLOCATE ( IRNUMMI   (XSTART:XEND,YSTART:YEND) )  ! irrigation event number, Micro
   ALLOCATE ( IRNUMFI   (XSTART:XEND,YSTART:YEND) )  ! irrigation event number, Flood 
@@ -1156,8 +1176,15 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( IRSIVOL   (XSTART:XEND,YSTART:YEND) )  ! amount of irrigation by sprinkler (mm)
   ALLOCATE ( IRMIVOL   (XSTART:XEND,YSTART:YEND) )  ! amount of irrigation by micro (mm)
   ALLOCATE ( IRFIVOL   (XSTART:XEND,YSTART:YEND) )  ! amount of irrigation by micro (mm)
+  ALLOCATE ( IRRGWVOL  (XSTART:XEND,YSTART:YEND) )  ! amount of irrigation by groundwwater (m)
   ALLOCATE ( IRRSPLH   (XSTART:XEND,YSTART:YEND) )  ! latent heating from sprinkler evaporation (w/m2)
+  ALLOCATE ( RICE_PONDING (XSTART:XEND,YSTART:YEND) ) ! water ponding depth in rice field (mm)
+  ALLOCATE ( RICE_DAY  (XSTART:XEND,YSTART:YEND) )  ! 
   ALLOCATE ( LOCTIM    (XSTART:XEND,YSTART:YEND) )  ! local time
+
+! tenday lai and fveg
+  ALLOCATE ( LAI10DAY  (XSTART:XEND,TENDAY,YSTART:YEND) ) ! ten day leaf area index
+  ALLOCATE ( FVEG10DAY (XSTART:XEND,TENDAY,YSTART:YEND) ) ! ten day vegetation fraction
 
 ! OUT (with no Noah LSM equivalent) (as defined in WRF)
    
@@ -1233,6 +1260,7 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( QRFXY       (XSTART:XEND,YSTART:YEND) )  ! 
   ALLOCATE ( QSPRINGXY   (XSTART:XEND,YSTART:YEND) )  ! 
   ALLOCATE ( QSLATXY     (XSTART:XEND,YSTART:YEND) )  ! 
+  ALLOCATE ( QLATXY      (XSTART:XEND,YSTART:YEND) )  !
   ALLOCATE ( RECHCLIM    (XSTART:XEND,YSTART:YEND) )  ! 
   ALLOCATE ( RIVERMASK   (XSTART:XEND,YSTART:YEND) )  ! 
   ALLOCATE ( NONRIVERXY  (XSTART:XEND,YSTART:YEND) )  ! 
@@ -1564,6 +1592,7 @@ ENDIF
   QRFXY      = undefined_real
   QSPRINGXY  = undefined_real
   QSLATXY    = undefined_real
+  QLATXY     = 0.0 !undefined_real
   CHSTARXY   = undefined_real
   Z0         = undefined_real
   ZNT        = undefined_real
@@ -1583,6 +1612,7 @@ ENDIF
   FIFRACT    = 0.0
   SWFRACT    = 0.0
   GWFRACT    = 0.0
+  RICELU     = 0.0
   IRNUMSI    = 0
   IRNUMMI    = 0
   IRNUMFI    = 0
@@ -1593,7 +1623,10 @@ ENDIF
   IRSIVOL    = 0.0
   IRMIVOL    = 0.0
   IRFIVOL    = 0.0
+  IRRGWVOL   = 0.0
   IRRSPLH    = 0.0
+  RICE_PONDING = 0.0
+  RICE_DAY   = 0
   LOCTIM     = undefined_real
 
 IF(SF_URBAN_PHYSICS > 0 )  THEN  ! any urban model
@@ -1750,13 +1783,13 @@ ENDIF
   end if
   
   if (soil_data_option == 4) then
-    CALL READ_3D_SOIL(SPATIAL_FILENAME, XSTART, XEND, YSTART, YEND, &
-                      NSOIL,BEXP_3D,SMCDRY_3D,SMCWLT_3D,SMCREF_3D,SMCMAX_3D,  &
+    CALL READ_3D_SOIL(SPATIAL_FILENAME, XSTART, XEND, YSTART, YEND,            &
+                      NSOIL,BEXP_3D,SMCDRY_3D,SMCWLT_3D,SMCREF_3D,SMCMAX_3D,   &
 		      DKSAT_3D,DWSAT_3D,PSISAT_3D,QUARTZ_3D,REFDK_2D,REFKDT_2D,&
-          IRR_FRAC_2D,IRR_HAR_2D,IRR_LAI_2D,IRR_MAD_2D,FILOSS_2D,SPRIR_RATE_2D,&
-          MICIR_RATE_2D,FIRTFAC_2D,IR_RAIN_2D,BVIC_2D,AXAJ_2D,BXAJ_2D,XXAJ_2D,&
-          BDVIC_2D,GDVIC_2D,BBVIC_2D,&
-          KLAT_FAC,TDSMC_FAC,TD_DC,TD_DCOEF,TD_DDRAIN,TD_RADI,TD_SPAC)
+                      BVIC_2D,                                                 &
+                      AXAJ_2D,BXAJ_2D,XXAJ_2D,                                 & 
+                      BDVIC_2D,GDVIC_2D,BBVIC_2D,                              &
+                      KLAT_FAC,TDSMC_FAC,TD_DC,TD_DCOEF,TD_DDRAIN,TD_RADI,TD_SPAC)
   end if
 
 !----------------------------------------------------------------------
@@ -1766,9 +1799,24 @@ ENDIF
   if (irrigation_option >= 1) then
       CALL READ_AGRICULTURE_DATA(AGDATA_FLNM, XSTART, XEND, YSTART, YEND, &
                                  IRFRACT, SIFRACT, MIFRACT, FIFRACT,      &
-                                 SWFRACT, GWFRACT)
+                                 SWFRACT, GWFRACT, RICELU)
+      if(irrigation_param_option == 1) then
+            CALL READ_2D_IRRIG_PARAM(IRRIGATION_PARAM_FILE,XSTART,XEND,YSTART,YEND,    &
+                                     IRR_FRAC_2D,IRR_HAR_2D,IRR_LAI_2D,IRR_MAD_2D,     &
+                                     FILOSS_2D,SPRIR_RATE_2D,MICIR_RATE_2D,FIRTFAC_2D, &
+                                     IR_RAIN_2D)
+      end if
   end if
   
+!----------------------------------------------------------------------
+! Read 10-day fveg and lai
+!----------------------------------------------------------------------
+
+  if(dynamic_veg_option == 10) then
+      CALL READ_TENDAY_VEG_DATA(HRLDAS_SETUP_FILE, XSTART, XEND, YSTART, YEND, &
+                                 TENDAY, FVEG10DAY, LAI10DAY)
+  end if
+
 !------------------------------------------------------------------------
 ! For IOPT_RUN = 5 (MMF groundwater), read in necessary extra fields
 ! This option is not tested for parallel use in the offline driver
@@ -1787,7 +1835,7 @@ ENDIF
   PLANTING   = 126     ! default planting date
   HARVEST    = 290     ! default harvest date
   SEASON_GDD = 1605    ! default total seasonal growing degree days
-  if (dynamic_veg_option == 10) then
+  if (crop_option == 1) then
     CALL READ_CROP_INPUT(HRLDAS_SETUP_FILE, XSTART, XEND, YSTART, YEND,&
                          CROPTYPE,PLANTING,HARVEST,SEASON_GDD)
   end if
@@ -1878,6 +1926,8 @@ ENDIF
         call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "IRSIVOL" , IRSIVOL  )
         call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "IRMIVOL" , IRMIVOL  )
         call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "IRFIVOL" , IRFIVOL  )
+        call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "RICE_PONDING", RICE_PONDING )
+        call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "RICE_DAY", RICE_DAY )
      ENDIF
     ! below for opt_run = 5
      call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "SMOISEQ"   , SMOISEQ    )
@@ -2019,7 +2069,7 @@ ENDIF
                   ims,ime, jms,jme, kms,kme,                &  ! memory
                   its,ite, jts,jte, kts,kte                 &  ! tile
                      ,smoiseq  ,smcwtdxy ,rechxy, deeprechxy, qtdrain, areaxy ,dx, dy, msftx, msfty,&
-                     wtddt    ,stepwtd  ,dtbl  ,qrfsxy ,qspringsxy  ,qslatxy,                  &
+                     wtddt    ,stepwtd  ,dtbl  ,qrfsxy ,qspringsxy  ,qslatxy, qlatxy,              &
                      fdepthxy ,terrain       ,riverbedxy ,eqzwt ,rivercondxy ,pexpxy,              &
                      rechclim ,gecros_state                 &
                      )
@@ -2172,7 +2222,7 @@ ENDIF
                   ims,ime, jms,jme, kms,kme,                &  ! memory
                   its,ite, jts,jte, kts,kte                 &  ! tile
                      ,smoiseq  ,smcwtdxy ,rechxy, deeprechxy, qtdrain, areaxy ,dx, dy, msftx, msfty,&
-                     wtddt    ,stepwtd  ,dtbl  ,qrfsxy ,qspringsxy  ,qslatxy,                  &
+                     wtddt    ,stepwtd  ,dtbl  ,qrfsxy ,qspringsxy  ,qslatxy, qlatxy,              &
                      fdepthxy ,terrain       ,riverbedxy ,eqzwt ,rivercondxy ,pexpxy,              &
                      rechclim ,gecros_state                 &
                      )
@@ -2184,7 +2234,7 @@ ENDIF
                  rivercondxy, pexpxy  , areaxy    , zwtxy     ,                 &
                  gwfract    , iopt_gwp, dx        ,                             &
                  smois      , sh2o    , smoiseq   , smcwtdxy  , deeprechxy,     &
-                 rechxy     , qslatxy , qrfsxy    , qspringsxy,                 &
+                 rechxy     , qslatxy , qlatxy    ,qrfsxy    , qspringsxy,      &
                  rechclim   ,                                                   &
                  ids,ide, jds,jde, kds,kde,                                     &
                  ims,ime, jms,jme, kms,kme,                                     &
@@ -2445,9 +2495,11 @@ end subroutine land_driver_ini
         CALL CALC_DECLIN(OLDDATE(1:19),XLAT(I,J), XLONG(I,J),COSZEN(I,J),JULIAN, &
                          HRANG(I,J), DECLIN, GMT, JULDAY)
       ENDIF
-      IF(IOPT_IRR > 0 ) THEN
+      IF(IOPT_IRR>0 .AND. IOPT_IRR <4) THEN
          CALL LOCAL_TIME(OLDDATE(1:19), XLONG(I,J), LOCTIM(I,J)) 
       ENDIF
+      ! groundwater pumping off for non-irrigated land
+      IF(IRFRACT(I,J) == 0.0) GWFRACT(I,J) = 0.0  
     END DO
     END DO
 
@@ -2492,20 +2544,22 @@ end subroutine land_driver_ini
                   IDVEG, IOPT_CRS, IOPT_BTR, IOPT_RUN,  IOPT_SFC,   IOPT_FRZ, &
 	       IOPT_INF, IOPT_RAD, IOPT_ALB, IOPT_SNF, IOPT_TBOT,   IOPT_STC, &
 	       IOPT_GLA, IOPT_RSF,IOPT_SOIL,IOPT_PEDO,IOPT_CROP,    IOPT_IRR, &
-              IOPT_IRRM, IOPT_GWP,IOPT_INFDV,IOPT_TDRN, IZ0TLND,              &
+              IOPT_IRRM, IOPT_GWP,IOPT_IRRP,IOPT_INFDV,IOPT_TDRN,    IZ0TLND, &
               sf_urban_physics,                                               &
 	       SOILCOMP,  SOILCL1,  SOILCL2,   SOILCL3,  SOILCL4,             &
 		  T_PHY,  QV_CURR,    U_PHY,    V_PHY,    SWDOWN,     SWDDIR, &
                  SWDDIF,      GLW,                                            &
 		    P8W,   RAINBL,       SR,                                  &
-                  IRFRACT, SIFRACT, MIFRACT,  FIFRACT,   SWFRACT,    GWFRACT, & ! IN : Irrigation fractions
+                IRFRACT,  SIFRACT,  MIFRACT,  FIFRACT,   SWFRACT,    GWFRACT, & ! IN : Irrigation fractions
+                 RICELU, LAI10DAY,FVEG10DAY,   TENDAY,  LLANDUSE,             &
 		    TSK,      HFX,      QFX,       LH,    GRDFLX,     SMSTAV, &
 		 SMSTOT,SFCRUNOFF, UDRUNOFF,   ALBEDO,     SNOWC,      SMOIS, &
 		   SH2O,     TSLB,     SNOW,    SNOWH,    CANWAT,     ACSNOM, &
 		 ACSNOW,    EMISS,     QSFC,                                  &
- 		     Z0,      ZNT,                                            & ! IN/OUT LSM eqv
+ 		     Z0,      ZNT,   LOCTIM,                                  & ! IN/OUT LSM eqv
                 IRNUMSI,  IRNUMMI,  IRNUMFI,   IRWATSI,  IRWATMI,    IRWATFI, & ! IN/OUT Irrigation
-                IRELOSS,  IRSIVOL,  IRMIVOL,   IRFIVOL,  IRRSPLH,   LLANDUSE, & ! IN/OUT Irrigation
+                IRELOSS,  IRSIVOL,  IRMIVOL,   IRFIVOL,  IRRSPLH,   IRRGWVOL, & ! IN/OUT Irrigation
+               RICE_DAY,       RICE_PONDING,   QLATXY,                        &
 		ISNOWXY,     TVXY,     TGXY, CANICEXY,  CANLIQXY,      EAHXY, &
 		  TAHXY,     CMXY,     CHXY,   FWETXY,  SNEQVOXY,   ALBOLDXY, &
 		QSNOWXY,  QRAINXY, WSLAKEXY,    ZWTXY, WAXY,WTXY,     TSNOXY, &
@@ -2525,8 +2579,8 @@ end subroutine land_driver_ini
 !                BEXP_3D,SMCDRY_3D,SMCWLT_3D,SMCREF_3D,SMCMAX_3D,             &
 !		 DKSAT_3D,DWSAT_3D,PSISAT_3D,QUARTZ_3D,                       &
 !		 REFDK_2D,REFKDT_2D,                                          &
-!                IRR_FRAC_2D,IRR_HAR_2D,IRR_LAI_2D,IRR_MAD_2D,FILOSS_2D,      &
-!                SPRIR_RATE_2D,MICIR_RATE_2D,FIRTFAC_2D,IR_RAIN_2D,           &
+                IRR_FRAC_2D,IRR_HAR_2D,IRR_LAI_2D,IRR_MAD_2D,FILOSS_2D,      &
+                SPRIR_RATE_2D,MICIR_RATE_2D,FIRTFAC_2D,IR_RAIN_2D,           &
 !		 BVIC_2D,AXAJ_2D,BXAJ_2D,XXAJ_2D,BDVIC_2D,GDVIC_2D,BBVIC_2D,  &
 
 #ifdef WRF_HYDRO
@@ -2615,13 +2669,16 @@ end subroutine land_driver_ini
                ISLTYP,      SMOISEQ,    DZS,        WTDDT,                &
                FDEPTHXY,    AREAXY,     TERRAIN,    ISURBAN,    IVGTYP,   &
                RIVERCONDXY, RIVERBEDXY, EQZWT,      PEXPXY,               &
-               GWFRACT,     IOPT_GWP,   DX,                               & ! gw pumping
+               GWFRACT,     IOPT_GWP,   DX,         IRRGWVOL,             & ! gw pumping
                SMOIS,       SH2O,       SMCWTDXY,   ZWTXY,                &
 	       QRFXY,       DEEPRECHXY, QSPRINGXY,                        &
                QSLATXY,     QRFSXY,     QSPRINGSXY, RECHXY,               &
+               QLATXY,                                                    &
                IDS,IDE, JDS,JDE, KDS,KDE,                                 &
                IMS,IME, JMS,JME, KMS,KME,                                 &
                ITS,ITE, JTS,JTE, KTS,KTE )
+
+           IRRGWVOL = 0.0
 
 !         IF(SF_URBAN_PHYSICS.eq.1) THEN
 !           DO j=jts,jte                                           !urban
@@ -2663,7 +2720,6 @@ end subroutine land_driver_ini
 !             ENDDO                                                !urban
 !           ENDDO                                                  !urban
 !         ENDIF
-
  ENDIF
 
 !------------------------------------------------------------------------
@@ -2689,67 +2745,67 @@ end subroutine land_driver_ini
               ! For 3D arrays, we need to know whether the Z dimension is snow layers, or soil layers.
 
         ! Properties - Assigned or predicted
-              call add_to_output(IVGTYP     , "IVGTYP"  , "Dominant vegetation category"         , "category"              )
-              call add_to_output(ISLTYP     , "ISLTYP"  , "Dominant soil category"               , "category"              )
-              call add_to_output(FVEGXY     , "FVEG"    , "Green Vegetation Fraction"              , "-"                   )
-              call add_to_output(LAI        , "LAI"     , "Leaf area index"                      , "-"                     )
-              call add_to_output(XSAIXY     , "SAI"     , "Stem area index"                      , "-"                     )
+!              call add_to_output(IVGTYP     , "IVGTYP"  , "Dominant vegetation category"         , "category"              )
+!              call add_to_output(ISLTYP     , "ISLTYP"  , "Dominant soil category"               , "category"              )
+!              call add_to_output(FVEGXY     , "FVEG"    , "Green Vegetation Fraction"              , "-"                   )
+!              call add_to_output(LAI        , "LAI"     , "Leaf area index"                      , "-"                     )
+!              call add_to_output(XSAIXY     , "SAI"     , "Stem area index"                      , "-"                     )
         ! Forcing
-              call add_to_output(SWDOWN     , "SWFORC"  , "Shortwave forcing"                    , "W m{-2}"               )
-              call add_to_output(COSZEN     , "COSZ"    , "Cosine of zenith angle"                    , "W m{-2}"               )
-              call add_to_output(GLW        , "LWFORC"  , "Longwave forcing"                    , "W m{-2}"               )
-              call add_to_output(RAINBL     , "RAINRATE", "Precipitation rate"                   , "kg m{-2} s{-1}"        )
+!              call add_to_output(SWDOWN     , "SWFORC"  , "Shortwave forcing"                    , "W m{-2}"               )
+!              call add_to_output(COSZEN     , "COSZ"    , "Cosine of zenith angle"                    , "W m{-2}"               )
+!              call add_to_output(GLW        , "LWFORC"  , "Longwave forcing"                    , "W m{-2}"               )
+!              call add_to_output(RAINBL     , "RAINRATE", "Precipitation rate"                   , "kg m{-2} s{-1}"        )
         ! Grid energy budget terms
-              call add_to_output(EMISS      , "EMISS"   , "Grid emissivity"                    , ""               )
-              call add_to_output(FSAXY      , "FSA"     , "Total absorbed SW radiation"          , "W m{-2}"               )         
-              call add_to_output(FIRAXY     , "FIRA"    , "Total net LW radiation to atmosphere" , "W m{-2}"               )
+!              call add_to_output(EMISS      , "EMISS"   , "Grid emissivity"                    , ""               )
+!              call add_to_output(FSAXY      , "FSA"     , "Total absorbed SW radiation"          , "W m{-2}"               )         
+!              call add_to_output(FIRAXY     , "FIRA"    , "Total net LW radiation to atmosphere" , "W m{-2}"               )
               call add_to_output(GRDFLX     , "GRDFLX"  , "Heat flux into the soil"              , "W m{-2}"               )
               call add_to_output(HFX        , "HFX"     , "Total sensible heat to atmosphere"    , "W m{-2}"               )
               call add_to_output(LH         , "LH"      , "Total latent heat to atmosphere"      , "W m{-2}"               )
               call add_to_output(ECANXY     , "ECAN"    , "Canopy water evaporation rate"        , "kg m{-2} s{-1}"        )
               call add_to_output(ETRANXY    , "ETRAN"   , "Transpiration rate"                   , "kg m{-2} s{-1}"        )
               call add_to_output(EDIRXY     , "EDIR"    , "Direct from soil evaporation rate"    , "kg m{-2} s{-1}"        )
-              call add_to_output(ALBEDO     , "ALBEDO"  , "Surface albedo"                       , "-"                     )
+!              call add_to_output(ALBEDO     , "ALBEDO"  , "Surface albedo"                       , "-"                     )
         ! Grid water budget terms - in addition to above
               call add_to_output(UDRUNOFF   , "UGDRNOFF", "Accumulated underground runoff"       , "mm"                    )
               call add_to_output(SFCRUNOFF  , "SFCRNOFF", "Accumulatetd surface runoff"          , "mm"                    )
               call add_to_output(CANLIQXY   , "CANLIQ"  , "Canopy liquid water content"          , "mm"                    )
               call add_to_output(CANICEXY   , "CANICE"  , "Canopy ice water content"             , "mm"                    )
               call add_to_output(ZWTXY      , "ZWT"     , "Depth to water table"                 , "m"                     )
-              call add_to_output(WAXY       , "WA"      , "Water in aquifer"                     , "kg m{-2}"              )
-              call add_to_output(WTXY       , "WT"      , "Water in aquifer and saturated soil"  , "kg m{-2}"              )
-              call add_to_output(QTDRAIN    , "QTDRAIN" , "Accumulated tile drainage"            , "mm"                    )
+!              call add_to_output(WAXY       , "WA"      , "Water in aquifer"                     , "kg m{-2}"              )
+!              call add_to_output(WTXY       , "WT"      , "Water in aquifer and saturated soil"  , "kg m{-2}"              )
+!              call add_to_output(QTDRAIN    , "QTDRAIN" , "Accumulated tile drainage"            , "mm"                    )
         ! Additional needed to close the canopy energy budget
-              call add_to_output(SAVXY      , "SAV"     , "Solar radiative heat flux absorbed by vegetation", "W m{-2}"    )
-              call add_to_output(TRXY       , "TR"      , "Transpiration heat"                     , "W m{-2}"             )
-              call add_to_output(EVCXY      , "EVC"     , "Canopy evap heat"                       , "W m{-2}"             )
-              call add_to_output(IRCXY      , "IRC"     , "Canopy net LW rad"                      , "W m{-2}"             )
-              call add_to_output(SHCXY      , "SHC"     , "Canopy sensible heat"                   , "W m{-2}"             )
-        ! Additional needed to close the under canopy ground energy budget
-              call add_to_output(IRGXY      , "IRG"     , "Ground net LW rad"                      , "W m{-2}"             )
-              call add_to_output(SHGXY      , "SHG"     , "Ground sensible heat"                   , "W m{-2}"             )
-              call add_to_output(EVGXY      , "EVG"     , "Ground evap heat"                       , "W m{-2}"             )
-              call add_to_output(GHVXY      , "GHV"     , "Ground heat flux + to soil vegetated"   , "W m{-2}"             )
+!              call add_to_output(SAVXY      , "SAV"     , "Solar radiative heat flux absorbed by vegetation", "W m{-2}"    )
+!              call add_to_output(TRXY       , "TR"      , "Transpiration heat"                     , "W m{-2}"             )
+!              call add_to_output(EVCXY      , "EVC"     , "Canopy evap heat"                       , "W m{-2}"             )
+!              call add_to_output(IRCXY      , "IRC"     , "Canopy net LW rad"                      , "W m{-2}"             )
+!              call add_to_output(SHCXY      , "SHC"     , "Canopy sensible heat"                   , "W m{-2}"             )
+!        ! Additional needed to close the under canopy ground energy budget
+!              call add_to_output(IRGXY      , "IRG"     , "Ground net LW rad"                      , "W m{-2}"             )
+!              call add_to_output(SHGXY      , "SHG"     , "Ground sensible heat"                   , "W m{-2}"             )
+!              call add_to_output(EVGXY      , "EVG"     , "Ground evap heat"                       , "W m{-2}"             )
+!              call add_to_output(GHVXY      , "GHV"     , "Ground heat flux + to soil vegetated"   , "W m{-2}"             )
         ! Needed to close the bare ground energy budget
-              call add_to_output(SAGXY      , "SAG"     , "Solar radiative heat flux absorbed by ground", "W m{-2}"        )
-              call add_to_output(IRBXY      , "IRB"     , "Net LW rad to atm bare"                 , "W m{-2}"             )
-              call add_to_output(SHBXY      , "SHB"     , "Sensible heat to atm bare"              , "W m{-2}"             )
-              call add_to_output(EVBXY      , "EVB"     , "Evaporation heat to atm bare"           , "W m{-2}"             )
-              call add_to_output(GHBXY      , "GHB"     , "Ground heat flux + to soil bare"        , "W m{-2}"             )
+!              call add_to_output(SAGXY      , "SAG"     , "Solar radiative heat flux absorbed by ground", "W m{-2}"        )
+!              call add_to_output(IRBXY      , "IRB"     , "Net LW rad to atm bare"                 , "W m{-2}"             )
+!              call add_to_output(SHBXY      , "SHB"     , "Sensible heat to atm bare"              , "W m{-2}"             )
+!              call add_to_output(EVBXY      , "EVB"     , "Evaporation heat to atm bare"           , "W m{-2}"             )
+!              call add_to_output(GHBXY      , "GHB"     , "Ground heat flux + to soil bare"        , "W m{-2}"             )
         ! Above-soil temperatures
-              call add_to_output(TRADXY     , "TRAD"    , "Surface radiative temperature"        , "K"                     )
-              call add_to_output(TGXY       , "TG"      , "Ground temperature"                   , "K"                     )
-              call add_to_output(TVXY       , "TV"      , "Vegetation temperature"               , "K"                     )
-              call add_to_output(TAHXY      , "TAH"     , "Canopy air temperature"               , "K"                     )
-              call add_to_output(TGVXY      , "TGV"     , "Ground surface Temp vegetated"          , "K"                   )
-              call add_to_output(TGBXY      , "TGB"     , "Ground surface Temp bare"               , "K"                   )
-              call add_to_output(T2MVXY     , "T2MV"    , "2m Air Temp vegetated"                  , "K"                   )
-              call add_to_output(T2MBXY     , "T2MB"    , "2m Air Temp bare"                       , "K"                   )
+!              call add_to_output(TRADXY     , "TRAD"    , "Surface radiative temperature"        , "K"                     )
+!              call add_to_output(TGXY       , "TG"      , "Ground temperature"                   , "K"                     )
+!              call add_to_output(TVXY       , "TV"      , "Vegetation temperature"               , "K"                     )
+!              call add_to_output(TAHXY      , "TAH"     , "Canopy air temperature"               , "K"                     )
+!              call add_to_output(TGVXY      , "TGV"     , "Ground surface Temp vegetated"          , "K"                   )
+!              call add_to_output(TGBXY      , "TGB"     , "Ground surface Temp bare"               , "K"                   )
+!              call add_to_output(T2MVXY     , "T2MV"    , "2m Air Temp vegetated"                  , "K"                   )
+!              call add_to_output(T2MBXY     , "T2MB"    , "2m Air Temp bare"                       , "K"                   )
         ! Above-soil moisture
-              call add_to_output(Q2MVXY     , "Q2MV"    , "2m mixing ratio vegetated"              , "kg/kg"               )
-              call add_to_output(Q2MBXY     , "Q2MB"    , "2m mixing ratio bare"                   , "kg/kg"               )
-              call add_to_output(EAHXY      , "EAH"     , "Canopy air vapor pressure"            , "Pa"                    )
-              call add_to_output(FWETXY     , "FWET"    , "Wetted or snowed fraction of canopy"  , "fraction"              )
+!              call add_to_output(Q2MVXY     , "Q2MV"    , "2m mixing ratio vegetated"              , "kg/kg"               )
+!              call add_to_output(Q2MBXY     , "Q2MB"    , "2m mixing ratio bare"                   , "kg/kg"               )
+!              call add_to_output(EAHXY      , "EAH"     , "Canopy air vapor pressure"            , "Pa"                    )
+!              call add_to_output(FWETXY     , "FWET"    , "Wetted or snowed fraction of canopy"  , "fraction"              )
         ! Snow and soil - 3D terms
               call add_to_output(ZSNSOXY(:,-nsnow+1:0,:),  "ZSNSO_SN" , "Snow layer depths from snow surface", "m", "SNOW")
               call add_to_output(SNICEXY    , "SNICE"   , "Snow layer ice"                       , "mm"             , "SNOW")
@@ -2761,45 +2817,47 @@ end subroutine land_driver_ini
         ! Snow - 2D terms
               call add_to_output(SNOWH      , "SNOWH"   , "Snow depth"                           , "m"                     )
               call add_to_output(SNOW       , "SNEQV"   , "Snow water equivalent"                , "kg m{-2}"              )
-              call add_to_output(QSNOWXY    , "QSNOW"   , "Snowfall rate on the ground"          , "mm s{-1}"              )
-              call add_to_output(QRAINXY    , "QRAIN"   , "Rainfall rate on the ground"          , "mm s{-1}"              )
-              call add_to_output(ISNOWXY    , "ISNOW"   , "Number of snow layers"                , "count"                 )
-              call add_to_output(SNOWC      , "FSNO"    , "Snow-cover fraction on the ground"      , ""                    )
+!              call add_to_output(QSNOWXY    , "QSNOW"   , "Snowfall rate on the ground"          , "mm s{-1}"              )
+!              call add_to_output(QRAINXY    , "QRAIN"   , "Rainfall rate on the ground"          , "mm s{-1}"              )
+!              call add_to_output(ISNOWXY    , "ISNOW"   , "Number of snow layers"                , "count"                 )
+!              call add_to_output(SNOWC      , "FSNO"    , "Snow-cover fraction on the ground"      , ""                    )
               call add_to_output(ACSNOW     , "ACSNOW"  , "accumulated snow fall"                  , "mm"                  )
               call add_to_output(ACSNOM     , "ACSNOM"  , "accumulated melting water out of snow bottom" , "mm"            )
         ! Exchange coefficients
-              call add_to_output(CMXY       , "CM"      , "Momentum drag coefficient"            , ""                      )
-              call add_to_output(CHXY       , "CH"      , "Sensible heat exchange coefficient"   , ""                      )
-              call add_to_output(CHVXY      , "CHV"     , "Exchange coefficient vegetated"         , "m s{-1}"             )
-              call add_to_output(CHBXY      , "CHB"     , "Exchange coefficient bare"              , "m s{-1}"             )
-              call add_to_output(CHLEAFXY   , "CHLEAF"  , "Exchange coefficient leaf"              , "m s{-1}"             )
-              call add_to_output(CHUCXY     , "CHUC"    , "Exchange coefficient bare"              , "m s{-1}"             )
-              call add_to_output(CHV2XY     , "CHV2"    , "Exchange coefficient 2-meter vegetated" , "m s{-1}"             )
-              call add_to_output(CHB2XY     , "CHB2"    , "Exchange coefficient 2-meter bare"      , "m s{-1}"             )
+!              call add_to_output(CMXY       , "CM"      , "Momentum drag coefficient"            , ""                      )
+!              call add_to_output(CHXY       , "CH"      , "Sensible heat exchange coefficient"   , ""                      )
+!              call add_to_output(CHVXY      , "CHV"     , "Exchange coefficient vegetated"         , "m s{-1}"             )
+!              call add_to_output(CHBXY      , "CHB"     , "Exchange coefficient bare"              , "m s{-1}"             )
+!              call add_to_output(CHLEAFXY   , "CHLEAF"  , "Exchange coefficient leaf"              , "m s{-1}"             )
+!              call add_to_output(CHUCXY     , "CHUC"    , "Exchange coefficient bare"              , "m s{-1}"             )
+!              call add_to_output(CHV2XY     , "CHV2"    , "Exchange coefficient 2-meter vegetated" , "m s{-1}"             )
+!              call add_to_output(CHB2XY     , "CHB2"    , "Exchange coefficient 2-meter bare"      , "m s{-1}"             )
         ! Carbon allocation model
-              call add_to_output(LFMASSXY   , "LFMASS"  , "Leaf mass"                            , "g m{-2}"               )
-              call add_to_output(RTMASSXY   , "RTMASS"  , "Mass of fine roots"                   , "g m{-2}"               )
-              call add_to_output(STMASSXY   , "STMASS"  , "Stem mass"                            , "g m{-2}"               )
-              call add_to_output(WOODXY     , "WOOD"    , "Mass of wood and woody roots"         , "g m{-2}"               )
-              call add_to_output(GRAINXY    , "GRAIN"   , "Mass of grain "                       , "g m{-2}"               ) !XING!THREE
-              call add_to_output(GDDXY      , "GDD"     , "Growing degree days(10) "             , ""                      ) !XING
-              call add_to_output(STBLCPXY   , "STBLCP"  , "Stable carbon in deep soil"           , "g m{-2}"               )
-              call add_to_output(FASTCPXY   , "FASTCP"  , "Short-lived carbon in shallow soil"   , "g m{-2}"               )
-              call add_to_output(NEEXY      , "NEE"     , "Net ecosystem exchange"                 , "g m{-2} s{-1} CO2"   )
-              call add_to_output(GPPXY      , "GPP"     , "Net instantaneous assimilation"         , "g m{-2} s{-1} C"     )
-              call add_to_output(NPPXY      , "NPP"     , "Net primary productivity"               , "g m{-2} s{-1} C"     )
-              call add_to_output(PSNXY      , "PSN"     , "Total photosynthesis"                   , "umol CO@ m{-2} s{-1}")
-              call add_to_output(APARXY     , "APAR"    , "Photosynthesis active energy by canopy" , "W m{-2}"             )
+!              call add_to_output(LFMASSXY   , "LFMASS"  , "Leaf mass"                            , "g m{-2}"               )
+!              call add_to_output(RTMASSXY   , "RTMASS"  , "Mass of fine roots"                   , "g m{-2}"               )
+!              call add_to_output(STMASSXY   , "STMASS"  , "Stem mass"                            , "g m{-2}"               )
+!              call add_to_output(WOODXY     , "WOOD"    , "Mass of wood and woody roots"         , "g m{-2}"               )
+!              call add_to_output(GRAINXY    , "GRAIN"   , "Mass of grain "                       , "g m{-2}"               ) !XING!THREE
+!              call add_to_output(GDDXY      , "GDD"     , "Growing degree days(10) "             , ""                      ) !XING
+!              call add_to_output(STBLCPXY   , "STBLCP"  , "Stable carbon in deep soil"           , "g m{-2}"               )
+!              call add_to_output(FASTCPXY   , "FASTCP"  , "Short-lived carbon in shallow soil"   , "g m{-2}"               )
+!              call add_to_output(NEEXY      , "NEE"     , "Net ecosystem exchange"                 , "g m{-2} s{-1} CO2"   )
+!              call add_to_output(GPPXY      , "GPP"     , "Net instantaneous assimilation"         , "g m{-2} s{-1} C"     )
+!              call add_to_output(NPPXY      , "NPP"     , "Net primary productivity"               , "g m{-2} s{-1} C"     )
+!              call add_to_output(PSNXY      , "PSN"     , "Total photosynthesis"                   , "umol CO@ m{-2} s{-1}")
+!              call add_to_output(APARXY     , "APAR"    , "Photosynthesis active energy by canopy" , "W m{-2}"             )
         ! Irrigation
             IF (irrigation_option > 0) THEN
-              call add_to_output(IRNUMSI    , "IRNUMSI" , "Sprinkler irrigation count"             , "-"                   )
-              call add_to_output(IRNUMMI    , "IRNUMMI" , "Micro irrigation count"                 , "-"                   )
-              call add_to_output(IRNUMFI    , "IRNUMFI" , "Flood irrigation count"                 , "-"                   )
-              call add_to_output(IRELOSS    , "IRELOSS" , "Sprinkler Evaporation"                  , "mm"                  )
+!              call add_to_output(IRNUMSI    , "IRNUMSI" , "Sprinkler irrigation count"             , "-"                   )
+!              call add_to_output(IRNUMMI    , "IRNUMMI" , "Micro irrigation count"                 , "-"                   )
+!              call add_to_output(IRNUMFI    , "IRNUMFI" , "Flood irrigation count"                 , "-"                   )
+!              call add_to_output(IRELOSS    , "IRELOSS" , "Sprinkler Evaporation"                  , "mm"                  )
               call add_to_output(IRSIVOL    , "IRSIVOL" , "Sprinkler irrigation amount"            , "mm"                  )
               call add_to_output(IRMIVOL    , "IRMIVOL" , "Micro irrigation amount"                , "mm"                  )
               call add_to_output(IRFIVOL    , "IRFIVOL" , "Flood irrigation amount"                , "mm"                  )
-              call add_to_output(IRRSPLH    , "IRRSPLH" , "Latent heating due to sprinkler"        , "W m{-2}"             )
+!              call add_to_output(IRRSPLH    , "IRRSPLH" , "Latent heating due to sprinkler"        , "W m{-2}"             )
+!              call add_to_output(RICE_PONDING , "RICE_PONDING" , "Water ponding depth in Rice (mm)", "mm"                  )
+!              call add_to_output(RICE_DAY   , "RICE_DAY", "Day since rice active"                  ,  "-"                  )
             ENDIF
         ! Carbon allocation model
 	    IF(RUNOFF_OPTION == 5) THEN
@@ -2940,6 +2998,8 @@ subroutine lsm_restart()
      call add_to_restart(IRSIVOL   , "IRSIVOL") 
      call add_to_restart(IRMIVOL   , "IRMIVOL")
      call add_to_restart(IRFIVOL   , "IRFIVOL")
+     call add_to_restart(RICE_PONDING , "RICE_PONDING")
+     call add_to_restart(RICE_DAY  , "RICE_DAY")
   ENDIF
   ! below for opt_run = 5
   call add_to_restart(SMOISEQ   , "SMOISEQ"  , layers="SOIL"  )

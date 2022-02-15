@@ -572,6 +572,82 @@ contains
 
 !---------------------------------------------------------------------------------------------------------
 
+  subroutine read_tenday_veg_data(wrfinput_flnm,                          &
+       xstart, xend,                                                      &
+       ystart, yend,                                                      &
+       tenday,                                                            &
+       fveg10day,                                                         &
+       lai10day)
+
+    implicit none
+    character(len=*),                                   intent(in)  :: wrfinput_flnm
+    integer,                                            intent(in)  :: xstart, xend, ystart, yend, tenday
+    real,    dimension(xstart:xend,tenday,ystart:yend), intent(out) :: fveg10day
+    real,    dimension(xstart:xend,tenday,ystart:yend), intent(out) :: lai10day
+
+    character(len=24)                                        :: name
+    integer                                                  :: ierr,iret
+    integer                                                  :: ncid, varid
+    integer                                                  :: rank
+    integer                                                  :: iday
+    real,    dimension(xstart:xend,ystart:yend,tenday)        :: xdum
+
+#ifdef _PARALLEL_
+    call MPI_COMM_RANK(MPI_COMM_WORLD, rank, ierr)
+    if (ierr /= MPI_SUCCESS) stop "MPI_COMM_RANK"
+#else
+    rank = 0
+#endif
+
+    ! Open the NetCDF file.
+    if (rank == 0) write(*,'("wrfinput_flnm: ''", A, "''")') trim(wrfinput_flnm)
+#ifdef _PARALLEL_
+    ierr = nf90_open_par(wrfinput_flnm, NF90_NOWRITE, MPI_COMM_WORLD, MPI_INFO_NULL, ncid)
+#else
+    ierr = nf90_open(wrfinput_flnm, NF90_NOWRITE, ncid)
+#endif
+    if (ierr /= 0) then
+       write(*,'("read_tenday_veg_data:  Problem opening ten-day veg data file: ''", A, "''")') trim(wrfinput_flnm)
+#ifdef _PARALLEL_
+       call mpi_finalize(ierr)
+       if (ierr /= 0) write(*, '("Problem with MPI_finalize.")')
+#endif
+       stop
+    endif
+
+! Get vegetation fraction
+    name = "FVEG10DAY"
+    iret = nf90_inq_varid(ncid,  name,  varid)
+    if (iret == 0) then
+      ierr = nf90_get_var(ncid, varid, xdum, start=(/xstart,ystart,1/), count=(/xend-xstart+1,yend-ystart+1,tenday/))
+    else
+      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
+    endif
+
+    do iday = 1,36
+      fveg10day(:,iday,:) = xdum(:,:,iday)
+    end do
+
+! Get 10 day leaf area index
+    name = "LAI10DAY"
+    iret = nf90_inq_varid(ncid,  name,  varid)
+    if (iret == 0) then
+      ierr = nf90_get_var(ncid, varid, xdum, start=(/xstart,ystart,1/), count=(/xend-xstart+1,yend-ystart+1,tenday/))
+    else
+      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
+    endif
+
+    do iday = 1,36
+      lai10day(:,iday,:) = xdum(:,:,iday)
+    end do
+
+! Close the NetCDF file
+    ierr = nf90_close(ncid)
+    if (ierr /= 0) stop "MODULE_NOAHLSM_HRLDAS_INPUT:  read_tenday_veg_data:  NF90_CLOSE"
+
+  end subroutine read_tenday_veg_data
+!---------------------------------------------------------------------------------------------------------
+
   subroutine read_agriculture_data(agdata_flnm,                            &
        xstart, xend,                                                      &
        ystart, yend,                                                      &
@@ -580,7 +656,8 @@ contains
        mifract,                                                           &
        fifract,                                                           &
        swfract,                                                           &
-       gwfract)
+       gwfract,                                                           &
+       ricelu)
 
     implicit none
     character(len=*),                            intent(in)  :: agdata_flnm
@@ -591,6 +668,7 @@ contains
     real,    dimension(xstart:xend,ystart:yend), intent(out) :: fifract
     real,    dimension(xstart:xend,ystart:yend), intent(out) :: swfract
     real,    dimension(xstart:xend,ystart:yend), intent(out) :: gwfract
+    real,    dimension(xstart:xend,ystart:yend), intent(out) :: ricelu
 
     character(len=24)                                        :: name
     integer                                                  :: ierr,iret
@@ -654,6 +732,15 @@ contains
     iret = nf90_inq_varid(ncid,  name,  varid)
     if (iret == 0) then
       ierr = nf90_get_var(ncid, varid, fifract, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+    else
+      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
+    endif
+
+! Get rice land use
+    name = "RICELU"
+    iret = nf90_inq_varid(ncid,  name,  varid)
+    if (iret == 0) then
+      ierr = nf90_get_var(ncid, varid, ricelu, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
     else
       write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
     endif
@@ -831,12 +918,11 @@ contains
 
 !---------------------------------------------------------------------------------------------------------
 
-  subroutine read_3d_soil(spatial_filename,xstart, xend,ystart, yend,           &
-                          nsoil,bexp_3d,smcdry_3d,smcwlt_3d,smcref_3d,smcmax_3d,  &
-		          dksat_3d,dwsat_3d,psisat_3d,quartz_3d,refdk_2d,refkdt_2d,&
-               irr_frac_2d,irr_har_2d,irr_lai_2d,irr_mad_2d,filoss_2d,sprir_rate_2d,&
-               micir_rate_2d,firtfac_2d,ir_rain_2d,bvic_2d,axaj_2d,bxaj_2d,xxaj_2d,&
-               bdvic_2d,gdvic_2d,bbvic_2d,klatfac,tdsmcfac,tddc,tddcoef,tdddrain,tdradi,tdspac)
+  subroutine read_3d_soil(spatial_filename,xstart, xend,ystart, yend,                &
+                          nsoil,bexp_3d,smcdry_3d,smcwlt_3d,smcref_3d,smcmax_3d,     &
+		          dksat_3d,dwsat_3d,psisat_3d,quartz_3d,refdk_2d,refkdt_2d,  &
+                          bvic_2d,axaj_2d,bxaj_2d,xxaj_2d,bdvic_2d,gdvic_2d,bbvic_2d,& 
+                          klatfac,tdsmcfac,tddc,tddcoef,tdddrain,tdradi,tdspac)
 
     implicit none
     character(len=*),          intent(in)  :: spatial_filename
@@ -853,15 +939,6 @@ contains
     real,    dimension(xstart:xend,nsoil,ystart:yend), intent(out) :: quartz_3d
     real,    dimension(xstart:xend,ystart:yend), intent(out)       :: refdk_2d
     real,    dimension(xstart:xend,ystart:yend), intent(out)       :: refkdt_2d
-    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: irr_frac_2d
-    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: irr_har_2d
-    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: irr_lai_2d
-    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: irr_mad_2d
-    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: filoss_2d
-    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: sprir_rate_2d
-    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: micir_rate_2d
-    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: firtfac_2d
-    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: ir_rain_2d
     real,    dimension(xstart:xend,ystart:yend), intent(out)       :: bvic_2d
     real,    dimension(xstart:xend,ystart:yend), intent(out)       :: axaj_2d
     real,    dimension(xstart:xend,ystart:yend), intent(out)       :: bxaj_2d
@@ -1034,97 +1111,6 @@ contains
     endif
 
     iret = nf90_get_var(ncid, varid, refkdt_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
-
-!irrigation
-    name = "IRR_FRAC"
-    iret = nf90_inq_varid(ncid,  trim(name),  varid)
-    if (iret /= 0) then
-      print*, 'ncid = ', ncid
-      write(*,*) "FATAL ERROR: In read_3d_soil():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(spatial_filename)
-      stop
-    endif
-
-    iret = nf90_get_var(ncid, varid, irr_frac_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
-!
-    name = "IRR_HAR"
-    iret = nf90_inq_varid(ncid,  trim(name),  varid)
-    if (iret /= 0) then
-      print*, 'ncid = ', ncid
-      write(*,*) "FATAL ERROR: In read_3d_soil():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(spatial_filename)
-      stop
-    endif
-
-    iret = nf90_get_var(ncid, varid, irr_har_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
-!
-    name = "IRR_LAI"
-    iret = nf90_inq_varid(ncid,  trim(name),  varid)
-    if (iret /= 0) then
-      print*, 'ncid = ', ncid
-      write(*,*) "FATAL ERROR: In read_3d_soil():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(spatial_filename)
-      stop
-    endif
-
-    iret = nf90_get_var(ncid, varid, irr_lai_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
-!
-    name = "IRR_MAD"
-    iret = nf90_inq_varid(ncid,  trim(name),  varid)
-    if (iret /= 0) then
-      print*, 'ncid = ', ncid
-      write(*,*) "FATAL ERROR: In read_3d_soil():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(spatial_filename)
-      stop
-    endif
-
-    iret = nf90_get_var(ncid, varid, irr_mad_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
-!
-    name = "FILOSS"
-    iret = nf90_inq_varid(ncid,  trim(name),  varid)
-    if (iret /= 0) then
-      print*, 'ncid = ', ncid
-      write(*,*) "FATAL ERROR: In read_3d_soil():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(spatial_filename)
-      stop
-    endif
-
-    iret = nf90_get_var(ncid, varid, filoss_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
-!
-    name = "SPRIR_RATE"
-    iret = nf90_inq_varid(ncid,  trim(name),  varid)
-    if (iret /= 0) then
-      print*, 'ncid = ', ncid
-      write(*,*) "FATAL ERROR: In read_3d_soil():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(spatial_filename)
-      stop
-    endif
-
-    iret = nf90_get_var(ncid, varid, sprir_rate_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
-!
-    name = "MICIR_RATE"
-    iret = nf90_inq_varid(ncid,  trim(name),  varid)
-    if (iret /= 0) then
-      print*, 'ncid = ', ncid
-      write(*,*) "FATAL ERROR: In read_3d_soil():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(spatial_filename)
-      stop
-    endif
-
-    iret = nf90_get_var(ncid, varid, micir_rate_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
-!
-    name = "FIRTFAC"
-    iret = nf90_inq_varid(ncid,  trim(name),  varid)
-    if (iret /= 0) then
-      print*, 'ncid = ', ncid
-      write(*,*) "FATAL ERROR: In read_3d_soil():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(spatial_filename)
-      stop
-    endif
-
-    iret = nf90_get_var(ncid, varid, firtfac_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
-  !
-    name = "IR_RAIN"
-    iret = nf90_inq_varid(ncid,  trim(name),  varid)
-    if (iret /= 0) then
-      print*, 'ncid = ', ncid
-      write(*,*) "FATAL ERROR: In read_3d_soil():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(spatial_filename)
-      stop
-    endif
-
-    iret = nf90_get_var(ncid, varid, ir_rain_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
 
 ! additional runoff opt_run=6~8
     name = "BVIC"
@@ -1338,6 +1324,135 @@ contains
 
   end subroutine read_soil_composition
 
+!---------------------------------------------------------------------------------------------------------
+  subroutine read_2d_irrig_param(irrig_2dparam_filename,xstart, xend,ystart, yend, &
+                                 irr_frac_2d,irr_har_2d,irr_lai_2d,irr_mad_2d,     &
+                                 filoss_2d,sprir_rate_2d,micir_rate_2d,firtfac_2d, &
+                                 ir_rain_2d)
+
+    implicit none
+    character(len=*),          intent(in)  :: irrig_2dparam_filename
+    integer,                   intent(in)  :: xstart, xend, ystart, yend
+
+    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: irr_frac_2d
+    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: irr_har_2d
+    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: irr_lai_2d
+    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: irr_mad_2d
+    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: filoss_2d
+    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: sprir_rate_2d
+    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: micir_rate_2d
+    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: firtfac_2d
+    real,    dimension(xstart:xend,ystart:yend), intent(out)       :: ir_rain_2d
+ 
+    character(len=24)  :: name
+    character(len=256) :: units
+    integer :: ierr,iret, varid
+    integer :: ncid
+
+    ierr = nf90_open(irrig_2dparam_filename, NF90_NOWRITE, ncid)
+    if (ierr /= 0) then
+       write(*,'("read_2d_irrig_param:  Problem opening 2d ag param file: ''", A, "''")') trim(irrig_2dparam_filename)
+       stop
+    endif
+
+!irrigation
+    name = "IRR_FRAC"
+    iret = nf90_inq_varid(ncid,  trim(name),  varid)
+    if (iret /= 0) then
+      print*, 'ncid = ', ncid
+      write(*,*) "FATAL ERROR: In read_2d_irrig_param():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(irrig_2dparam_filename)
+      stop
+    endif
+
+    iret = nf90_get_var(ncid, varid, irr_frac_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+!
+    name = "IRR_HAR"
+    iret = nf90_inq_varid(ncid,  trim(name),  varid)
+    if (iret /= 0) then
+      print*, 'ncid = ', ncid
+      write(*,*) "FATAL ERROR: In read_2d_irrig_param():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(irrig_2dparam_filename)
+      stop
+    endif
+
+    iret = nf90_get_var(ncid, varid, irr_har_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+!
+    name = "IRR_LAI"
+    iret = nf90_inq_varid(ncid,  trim(name),  varid)
+    if (iret /= 0) then
+      print*, 'ncid = ', ncid
+      write(*,*) "FATAL ERROR: In read_2d_irrig_param():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(irrig_2dparam_filename)
+      stop
+    endif
+
+    iret = nf90_get_var(ncid, varid, irr_lai_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+!
+    name = "IRR_MAD"
+    iret = nf90_inq_varid(ncid,  trim(name),  varid)
+    if (iret /= 0) then
+      print*, 'ncid = ', ncid
+      write(*,*) "FATAL ERROR: In read_2d_irrig_param():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(irrig_2dparam_filename)
+      stop
+    endif
+
+    iret = nf90_get_var(ncid, varid, irr_mad_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+!
+    name = "FILOSS"
+    iret = nf90_inq_varid(ncid,  trim(name),  varid)
+    if (iret /= 0) then
+      print*, 'ncid = ', ncid
+      write(*,*) "FATAL ERROR: In read_2d_irrig_param():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(irrig_2dparam_filename)
+      stop
+    endif
+
+    iret = nf90_get_var(ncid, varid, filoss_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+!
+    name = "SPRIR_RATE"
+    iret = nf90_inq_varid(ncid,  trim(name),  varid)
+    if (iret /= 0) then
+      print*, 'ncid = ', ncid
+      write(*,*) "FATAL ERROR: In read_2d_irrig_param():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(irrig_2dparam_filename)
+      stop
+    endif
+
+    iret = nf90_get_var(ncid, varid, sprir_rate_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+!
+    name = "MICIR_RATE"
+    iret = nf90_inq_varid(ncid,  trim(name),  varid)
+    if (iret /= 0) then
+      print*, 'ncid = ', ncid
+      write(*,*) "FATAL ERROR: In read_2d_irrig_param():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(irrig_2dparam_filename)
+      stop
+    endif
+
+    iret = nf90_get_var(ncid, varid, micir_rate_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+!
+    name = "FIRTFAC"
+    iret = nf90_inq_varid(ncid,  trim(name),  varid)
+    if (iret /= 0) then
+      print*, 'ncid = ', ncid
+      write(*,*) "FATAL ERROR: In read_2d_irrig_param():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(irrig_2dparam_filename)
+      stop
+    endif
+
+    iret = nf90_get_var(ncid, varid, firtfac_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
+  !
+    name = "IR_RAIN"
+    iret = nf90_inq_varid(ncid,  trim(name),  varid)
+    if (iret /= 0) then
+      print*, 'ncid = ', ncid
+      write(*,*) "FATAL ERROR: In read_2d_irrig_param():  Problem finding variable '"//trim(name)//"' in NetCDF file: " // trim(irrig_2dparam_filename)
+      stop
+    endif
+
+    iret = nf90_get_var(ncid, varid, ir_rain_2d, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))  
+
+ 
+    ! Close the NetCDF file
+    ierr = nf90_close(ncid)
+    if (ierr /= 0) stop "MODULE_NOAHLSM_HRLDAS_INPUT:  read_2d_irrig_param:  NF90_CLOSE"
+
+
+  end subroutine read_2d_irrig_param
 !---------------------------------------------------------------------------------------------------------
 
   subroutine read_soil_texture(spatial_filename,xstart, xend,ystart, yend,           &
