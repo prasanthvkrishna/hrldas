@@ -13,7 +13,7 @@ CONTAINS
                                 ISLTYP    ,SMOISEQ  ,DZS     ,WTDDT                  ,& !in
                                 FDEPTH    ,AREA     ,TOPO    ,ISURBAN ,IVGTYP        ,& !in
                                 RIVERCOND ,RIVERBED ,EQWTD   ,PEXP                   ,& !in
-                                GWFRACT   ,IOPT_GWP ,DX                              ,& !in: gw pumping
+                                GWFRACT   ,IOPT_GWP ,DX      ,IRRGWVOL               ,& !in: gw pumping
                                 SMOIS     ,SH2OXY   ,SMCWTD  ,WTD  ,QRF              ,& !inout
                                 DEEPRECH  ,QSPRING  ,QSLAT   ,QRFS ,QSPRINGS  ,RECH  ,& !inout
                                 ids,ide, jds,jde, kds,kde,                    &
@@ -21,7 +21,7 @@ CONTAINS
                                 its,ite, jts,jte, kts,kte                     )
 
 ! ----------------------------------------------------------------------
-  USE NOAHMP_TABLES, ONLY: BEXP_TABLE, DKSAT_TABLE, SMCMAX_TABLE,PSISAT_TABLE, SMCWLT_TABLE
+  USE NOAHMP_TABLES, ONLY: BEXP_TABLE, DKSAT_TABLE, SMCMAX_TABLE,PSISAT_TABLE, SMCWLT_TABLE, SY_TABLE
 ! ----------------------------------------------------------------------
   IMPLICIT NONE
 ! ----------------------------------------------------------------------
@@ -54,7 +54,8 @@ CONTAINS
                                                            PEXP, &
                                                        RIVERBED, &
                                                       RIVERCOND, &
-                                                        GWFRACT
+                                                        GWFRACT, &
+                                                       IRRGWVOL
                                                        
 ! IN and OUT 
 
@@ -90,7 +91,7 @@ CONTAINS
   REAL,      DIMENSION( ims:ime, jms:jme )    :: QLAT
   INTEGER,   DIMENSION( ims:ime, jms:jme )    :: LANDMASK !-1 for water (ice or no ice) and glacial areas, 1 for land where the LSM does its soil moisture calculations.
 
-  REAL :: BEXP,DKSAT,PSISAT,SMCMAX,SMCWLT
+  REAL :: BEXP,DKSAT,PSISAT,SMCMAX,SMCWLT,SY
 
     DELTAT = WTDDT * 60. !timestep in seconds for this calculation
 
@@ -145,6 +146,7 @@ CONTAINS
             PSISAT = -1.0*PSISAT_TABLE (ISLTYP(I,J))
             SMCMAX = SMCMAX_TABLE (ISLTYP(I,J))
             SMCWLT = SMCWLT_TABLE (ISLTYP(I,J))
+            SY     = SY_TABLE (ISLTYP(I,J))
 
              IF(IVGTYP(I,J)==ISURBAN)THEN
                  SMCMAX = 0.45
@@ -170,7 +172,7 @@ CONTAINS
 
 
 !Total water flux to or from groundwater in the cell
-             TOTWATER = QLAT(I,J) - QRF(I,J) + DEEPRECH(I,J)
+             TOTWATER = QLAT(I,J) - QRF(I,J) + DEEPRECH(I,J) - IRRGWVOL(I,J)/SY
 
              SMC(1:NSOIL) = SMOIS(I,1:NSOIL,J)
              SH2O(1:NSOIL) = SH2OXY(I,1:NSOIL,J)

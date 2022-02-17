@@ -228,6 +228,7 @@ module module_NoahMP_hrldas_driver
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRSIVOL    ! amount of irrigation by sprinkler (mm)
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRMIVOL    ! amount of irrigation by micro (mm)
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRFIVOL    ! amount of irrigation by micro (mm)  
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRRGWVOL     ! amount of irrigation by groundwater (m)
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: IRRSPLH    ! latent heating from sprinkler evaporation (w/m2)
   REAL,    ALLOCATABLE, DIMENSION(:,:)    :: LOCTIM     ! local time
   
@@ -1156,6 +1157,7 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( IRSIVOL   (XSTART:XEND,YSTART:YEND) )  ! amount of irrigation by sprinkler (mm)
   ALLOCATE ( IRMIVOL   (XSTART:XEND,YSTART:YEND) )  ! amount of irrigation by micro (mm)
   ALLOCATE ( IRFIVOL   (XSTART:XEND,YSTART:YEND) )  ! amount of irrigation by micro (mm)
+  ALLOCATE ( IRRGWVOL  (XSTART:XEND,YSTART:YEND) )  ! amount of irrigation by groundwwater (m)
   ALLOCATE ( IRRSPLH   (XSTART:XEND,YSTART:YEND) )  ! latent heating from sprinkler evaporation (w/m2)
   ALLOCATE ( LOCTIM    (XSTART:XEND,YSTART:YEND) )  ! local time
 
@@ -1593,6 +1595,7 @@ ENDIF
   IRSIVOL    = 0.0
   IRMIVOL    = 0.0
   IRFIVOL    = 0.0
+  IRRGWVOL   = 0.0
   IRRSPLH    = 0.0
   LOCTIM     = undefined_real
 
@@ -1878,6 +1881,9 @@ ENDIF
         call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "IRSIVOL" , IRSIVOL  )
         call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "IRMIVOL" , IRMIVOL  )
         call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "IRFIVOL" , IRFIVOL  )
+        if(runoff_option == 5) then
+          call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "IRRGWVOL", IRRGWVOL )
+        endif
      ENDIF
     ! below for opt_run = 5
      call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "SMOISEQ"   , SMOISEQ    )
@@ -2505,7 +2511,8 @@ end subroutine land_driver_ini
 		 ACSNOW,    EMISS,     QSFC,                                  &
  		     Z0,      ZNT,                                            & ! IN/OUT LSM eqv
                 IRNUMSI,  IRNUMMI,  IRNUMFI,   IRWATSI,  IRWATMI,    IRWATFI, & ! IN/OUT Irrigation
-                IRELOSS,  IRSIVOL,  IRMIVOL,   IRFIVOL,  IRRSPLH,   LLANDUSE, & ! IN/OUT Irrigation
+                IRELOSS,  IRSIVOL,  IRMIVOL,   IRFIVOL,  IRRSPLH,   IRRGWVOL, & 
+               LLANDUSE,                                                      & ! IN/OUT Irrigation
 		ISNOWXY,     TVXY,     TGXY, CANICEXY,  CANLIQXY,      EAHXY, &
 		  TAHXY,     CMXY,     CHXY,   FWETXY,  SNEQVOXY,   ALBOLDXY, &
 		QSNOWXY,  QRAINXY, WSLAKEXY,    ZWTXY, WAXY,WTXY,     TSNOXY, &
@@ -2615,13 +2622,15 @@ end subroutine land_driver_ini
                ISLTYP,      SMOISEQ,    DZS,        WTDDT,                &
                FDEPTHXY,    AREAXY,     TERRAIN,    ISURBAN,    IVGTYP,   &
                RIVERCONDXY, RIVERBEDXY, EQZWT,      PEXPXY,               &
-               GWFRACT,     IOPT_GWP,   DX,                               & ! gw pumping
+               GWFRACT,     IOPT_GWP,   DX,         IRRGWVOL,             & ! gw pumping
                SMOIS,       SH2O,       SMCWTDXY,   ZWTXY,                &
 	       QRFXY,       DEEPRECHXY, QSPRINGXY,                        &
                QSLATXY,     QRFSXY,     QSPRINGSXY, RECHXY,               &
                IDS,IDE, JDS,JDE, KDS,KDE,                                 &
                IMS,IME, JMS,JME, KMS,KME,                                 &
                ITS,ITE, JTS,JTE, KTS,KTE )
+
+            IRRGWVOL = 0.0  
 
 !         IF(SF_URBAN_PHYSICS.eq.1) THEN
 !           DO j=jts,jte                                           !urban
@@ -2940,6 +2949,9 @@ subroutine lsm_restart()
      call add_to_restart(IRSIVOL   , "IRSIVOL") 
      call add_to_restart(IRMIVOL   , "IRMIVOL")
      call add_to_restart(IRFIVOL   , "IRFIVOL")
+     if(runoff_option==5)then
+        call add_to_restart(IRRGWVOL  , "IRRGWVOL")
+     end if
   ENDIF
   ! below for opt_run = 5
   call add_to_restart(SMOISEQ   , "SMOISEQ"  , layers="SOIL"  )

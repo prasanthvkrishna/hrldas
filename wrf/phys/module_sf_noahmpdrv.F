@@ -30,7 +30,8 @@ CONTAINS
 		ACSNOW,    EMISS,     QSFC,                                 & ! IN/OUT LSM eqv
  		    Z0,      ZNT,                                           & ! IN/OUT LSM eqv
                IRNUMSI,  IRNUMMI,  IRNUMFI,   IRWATSI,  IRWATMI,   IRWATFI, & ! IN/OUT Noah MP only
-               IRELOSS,  IRSIVOL,  IRMIVOL,   IRFIVOL,  IRRSPLH,  LLANDUSE, & ! IN/OUT Noah MP only
+               IRELOSS,  IRSIVOL,  IRMIVOL,   IRFIVOL,  IRRSPLH,  IRRGWVOL, &
+              LLANDUSE,                                                     & ! IN/OUT Noah MP only
                ISNOWXY,     TVXY,     TGXY,  CANICEXY, CANLIQXY,     EAHXY, & ! IN/OUT Noah MP only
 	         TAHXY,     CMXY,     CHXY,    FWETXY, SNEQVOXY,  ALBOLDXY, & ! IN/OUT Noah MP only
                QSNOWXY, QRAINXY,  WSLAKEXY, ZWTXY,  WAXY,  WTXY,    TSNOXY, & ! IN/OUT Noah MP only
@@ -335,6 +336,7 @@ CONTAINS
     REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRMIVOL    ! amount of irrigation by micro (mm)
     REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRFIVOL    ! amount of irrigation by micro (mm)
     REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRRSPLH    ! latent heating from sprinkler evaporation (w/m2)    
+    REAL,    DIMENSION( ims:ime,          jms:jme ),  INTENT(INOUT) :: IRRGWVOL   ! groundwater fraction of irrigation water [m]
     CHARACTER(LEN=256),                               INTENT(IN)    :: LLANDUSE   ! landuse data name (USGS or MODIS_IGBP)
 
 !ID local irrigation variables 
@@ -1022,7 +1024,7 @@ CONTAINS
             QC      , SWDN    , LWDN    ,                               & ! IN : Forcing
 	    PRCPCONV, PRCPNONC, PRCPSHCV, PRCPSNOW, PRCPGRPL, PRCPHAIL, & ! IN : Forcing
             TBOT    , CO2PP   , O2PP    , FOLN    , FICEOLD , Z_ML    , & ! IN : Forcing
-            IRRFRA  , SIFAC   , MIFAC   , FIFAC   , SWFAC   , GWFAC   , & ! IN : Irrigation: fractions
+            IRRFRA  , SIFAC   , MIFAC   , FIFAC   ,                     & ! IN : Irrigation: fractions
             LLANDUSE,                                                   & ! IN : 	
             ALBOLD  , SNEQVO  ,                                         & ! IN/OUT : 
             STC     , SMH2O   , SMC     , TAH     , EAH     , FWET    , & ! IN/OUT : 
@@ -1204,6 +1206,7 @@ CONTAINS
              IRSIVOL(I,J)                  = IRSIVOL(I,J)+(IRSIRATE*1000.0)
              IRMIVOL(I,J)                  = IRMIVOL(I,J)+(IRMIRATE*1000.0)
              IRFIVOL(I,J)                  = IRFIVOL(I,J)+(IRFIRATE*1000.0)
+             IRRGWVOL(I,J)                 = IRRGWVOL(I,J)+GWFRACT(I,J)*(IRSIRATE+IRMIRATE+IRFIRATE)
              IRELOSS(I,J)                  = IRELOSS(I,J)+(EIRR*DT) ! mm
              IRRSPLH(I,J)                  = IRRSPLH(I,J)+(FIRR*DT) ! Joules/m^2
 
