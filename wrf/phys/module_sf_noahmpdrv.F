@@ -2290,7 +2290,7 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
             &            GWFRACT,IOPT_GWP,DXX,                                &
             &            SMOIS,SH2O, SMOISEQ, SMCWTDXY, DEEPRECHXY, RECHXY ,  &
             &            QSLATXY, QLATXY, QRFSXY, QSPRINGSXY,                 &
-            &            rechclim  ,                                   &
+            &            rechclim, QLAT_U, QLAT_V,                     &
             &            ids,ide, jds,jde, kds,kde,                    &
             &            ims,ime, jms,jme, kms,kme,                    &
             &            ips,ipe, jps,jpe, kps,kpe,                    &
@@ -2339,7 +2339,9 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
                                                            QSLATXY, &
                                                            QLATXY, &
                                                            QRFSXY, &
-                                                           QSPRINGSXY  
+                                                           QSPRINGSXY, &
+                                                           QLAT_U,&
+                                                           QLAT_V
 ! local
     INTEGER  :: I,J,K,ITER,itf,jtf, NITER, NCOUNT,NS
     REAL :: BEXP,SMCMAX,PSISAT,SMCWLT,DWSAT,DKSAT
@@ -2392,9 +2394,11 @@ SUBROUTINE PEDOTRANSFER_SR2006(nsoil,sand,clay,orgm,parameters)
 !Calculate lateral flow
 
 IF(NCOUNT.GT.0.OR.NITER.eq.1)THEN
-    QLAT = 0.
-    CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA       &
-                        ,GWFRACT,IOPT_GWP,DXX                         &
+    QLAT   = 0.
+    QLAT_U = 0.
+    QLAT_V = 0.
+    CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA &
+                        ,GWFRACT,IOPT_GWP,DXX,QLAT_U,QLAT_V           &
                         ,ids,ide,jds,jde,kds,kde                      & 
                         ,ims,ime,jms,jme,kms,kme                      &
                         ,its,ite,jts,jte,kts,kte                      )
@@ -2463,9 +2467,12 @@ EQWTD=WTD
 
 !recalculate lateral flow
 
-    QLAT = 0.
-    CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA       &
-                        ,GWFRACT,IOPT_GWP,DXX                         &
+    QLAT   = 0.
+    QLAT_U = 0.
+    QLAT_V = 0.
+
+    CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA &
+                        ,GWFRACT,IOPT_GWP,DXX,QLAT_U,QLAT_V           &
                         ,ids,ide,jds,jde,kds,kde                      & 
                         ,ims,ime,jms,jme,kms,kme                      &
                         ,its,ite,jts,jte,kts,kte                      )
@@ -2572,6 +2579,8 @@ EQWTD=WTD
              QLATXY(I,J) = 0.
              QRFSXY(I,J) = 0.
              QSPRINGSXY(I,J) = 0.
+             QLAT_U      = 0.
+             QLAT_V      = 0.
 
           ENDDO
        ENDDO

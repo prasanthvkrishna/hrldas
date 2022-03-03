@@ -324,6 +324,8 @@ module module_NoahMP_hrldas_driver
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QSPRINGXY
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QSLATXY ! accumulated
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QLATXY  ! time-step
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QLAT_U     
+  REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  QLAT_V
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  RECHCLIM
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  RIVERMASK
   REAL,    ALLOCATABLE, DIMENSION(:,:)    ::  NONRIVERXY
@@ -1261,6 +1263,8 @@ module module_NoahMP_hrldas_driver
   ALLOCATE ( QSPRINGXY   (XSTART:XEND,YSTART:YEND) )  ! 
   ALLOCATE ( QSLATXY     (XSTART:XEND,YSTART:YEND) )  ! 
   ALLOCATE ( QLATXY      (XSTART:XEND,YSTART:YEND) )  !
+  ALLOCATE ( QLAT_U      (XSTART:XEND,YSTART:YEND) )  !
+  ALLOCATE ( QLAT_V      (XSTART:XEND,YSTART:YEND) )  !
   ALLOCATE ( RECHCLIM    (XSTART:XEND,YSTART:YEND) )  ! 
   ALLOCATE ( RIVERMASK   (XSTART:XEND,YSTART:YEND) )  ! 
   ALLOCATE ( NONRIVERXY  (XSTART:XEND,YSTART:YEND) )  ! 
@@ -1593,6 +1597,8 @@ ENDIF
   QSPRINGXY  = undefined_real
   QSLATXY    = undefined_real
   QLATXY     = 0.0 !undefined_real
+  QLAT_U     = 0.0
+  QLAT_V     = 0.0
   CHSTARXY   = undefined_real
   Z0         = undefined_real
   ZNT        = undefined_real
@@ -2235,7 +2241,7 @@ ENDIF
                  gwfract    , iopt_gwp, dx        ,                             &
                  smois      , sh2o    , smoiseq   , smcwtdxy  , deeprechxy,     &
                  rechxy     , qslatxy , qlatxy    ,qrfsxy    , qspringsxy,      &
-                 rechclim   ,                                                   &
+                 rechclim   , qlat_u  , qlat_v    ,                             &
                  ids,ide, jds,jde, kds,kde,                                     &
                  ims,ime, jms,jme, kms,kme,                                     &
                  ims,ime, jms,jme, kms,kme,                                     &
@@ -2673,7 +2679,7 @@ end subroutine land_driver_ini
                SMOIS,       SH2O,       SMCWTDXY,   ZWTXY,                &
 	       QRFXY,       DEEPRECHXY, QSPRINGXY,                        &
                QSLATXY,     QRFSXY,     QSPRINGSXY, RECHXY,               &
-               QLATXY,                                                    &
+               QLATXY,      QLAT_U,     QLAT_V,                           &
                IDS,IDE, JDS,JDE, KDS,KDE,                                 &
                IMS,IME, JMS,JME, KMS,KME,                                 &
                ITS,ITE, JTS,JTE, KTS,KTE )
@@ -2861,11 +2867,17 @@ end subroutine land_driver_ini
             ENDIF
         ! Carbon allocation model
 	    IF(RUNOFF_OPTION == 5) THEN
-              call add_to_output(SMCWTDXY   , "SMCWTD"   , "Leaf mass"                            , "g m{-2}"               )
-              call add_to_output(RECHXY     , "RECH"     , "Mass of fine roots"                   , "g m{-2}"               )
-              call add_to_output(QRFSXY     , "QRFS"     , "Stem mass"                            , "g m{-2}"               )
-              call add_to_output(QSPRINGSXY , "QSPRINGS" , "Mass of wood and woody roots"         , "g m{-2}"               )
-              call add_to_output(QSLATXY    , "QSLAT"    , "Stable carbon in deep soil"           , "g m{-2}"               )
+              call add_to_output(SMCWTDXY   , "SMCWTD"   , "soil water content between bottom of the soil and water table", "m3 m{-3}")
+              call add_to_output(RECHXY     , "RECH"     , "recharge to or from the water table when shallow"             , "m"       )
+              call add_to_output(DEEPRECHXY , "DEEPRECH" , "recharge to or from the water table when deep"                , "m"       )
+              call add_to_output(QRFSXY     , "QRFS"     , "accumulated groundwater baselow"                              , "mm"      )
+              call add_to_output(QRFXY      , "QRF"      , "groundwater baseflow"                                         , "m"       )
+              call add_to_output(QSPRINGSXY , "QSPRINGS" , "accumulated seeping water"                                    , "mm"      )
+              call add_to_output(QSPRINGXY  , "QSPRING"  , "instantaneous seeping water"                                  , "m"       )
+              call add_to_output(QSLATXY    , "QSLAT"    , "accumulated lateral flow"                                     , "mm"      )
+              call add_to_output(QLATXY     , "QLAT"     , "instantaneous lateral flow"                                   , "m"       )
+              call add_to_output(QLAT_U     , "QLAT_U"   , "instantaneous lateral flow along x-direction"                 , "m"       )
+              call add_to_output(QLAT_V     , "QLAT_V"   , "instantaneous lateral flow along y-direction"                 , "m"       )
 	    ENDIF
 	! For now, no urban output variables included
 

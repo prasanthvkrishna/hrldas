@@ -16,7 +16,7 @@ CONTAINS
                                 GWFRACT   ,IOPT_GWP ,DX      ,IRRGWVOL               ,& !in: gw pumping
                                 SMOIS     ,SH2OXY   ,SMCWTD  ,WTD  ,QRF              ,& !inout
                                 DEEPRECH  ,QSPRING  ,QSLAT   ,QRFS ,QSPRINGS  ,RECH  ,& !inout
-                                QLATXY    ,                                   &
+                                QLATXY    ,QLAT_U   ,QLAT_V  ,                &
                                 ids,ide, jds,jde, kds,kde,                    &
                                 ims,ime, jms,jme, kms,kme,                    &
                                 its,ite, jts,jte, kts,kte                     )
@@ -73,7 +73,9 @@ CONTAINS
                                                          QLATXY, &
                                                            QRFS, &
                                                        QSPRINGS, &
-                                                           RECH
+                                                           RECH, &
+                                                         QLAT_U, &
+                                                         QLAT_V
 
 !OUT
 
@@ -111,9 +113,12 @@ CONTAINS
 
 !Calculate lateral flow
 
-    QLAT = 0.
+    QLAT   = 0.
+    QLAT_U = 0.
+    QLAT_V = 0.
+ 
     CALL LATERALFLOW(ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA &
-                        ,GWFRACT,IOPT_GWP,DX                          &
+                        ,GWFRACT,IOPT_GWP,DX,QLAT_U,QLAT_V            &
                         ,ids,ide,jds,jde,kds,kde                      &
                         ,ims,ime,jms,jme,kms,kme                      &
                         ,its,ite,jts,jte,kts,kte                      )
@@ -214,7 +219,7 @@ END  SUBROUTINE WTABLE_mmf_noahmp
 ! ==================================================================================================
 ! ----------------------------------------------------------------------
   SUBROUTINE LATERALFLOW  (ISLTYP,WTD,QLAT,FDEPTH,TOPO,LANDMASK,DELTAT,AREA &
-                           ,GWFRACT,IOPT_GWP,DX                          &
+                           ,GWFRACT,IOPT_GWP,DX,QLAT_U,QLAT_V            &
                            ,ids,ide,jds,jde,kds,kde                      &
                            ,ims,ime,jms,jme,kms,kme                      &
                            ,its,ite,jts,jte,kts,kte                      )
@@ -238,6 +243,7 @@ END  SUBROUTINE WTABLE_mmf_noahmp
   REAL,    DIMENSION( ims:ime, jms:jme ), INTENT(IN) :: GWFRACT
 !output
   REAL, DIMENSION( ims:ime , jms:jme ), INTENT(OUT) :: QLAT
+  REAL, DIMENSION( ims:ime , jms:jme ), INTENT(OUT) :: QLAT_U,QLAT_V
 
 !local
   INTEGER                              :: I, J, itsh,iteh,jtsh,jteh, nx, ny
@@ -245,6 +251,8 @@ END  SUBROUTINE WTABLE_mmf_noahmp
   REAL, DIMENSION(ims-1:ime+1, jms-1:jme+1) :: KCELL, HEAD
   INTEGER,   DIMENSION(ims-1:ime+1, jms-1:jme+1) :: PUMP_CELL ! grid with gw pumping or not
                                                               ! 0-->no; 1--> yes
+  REAL                                 :: qlat_h_u, qlat_h_v, Qtmp,&
+                                          Qusign,Qvsign,theta
 
   REAL, DIMENSION(19)      :: KLATFACTOR
   DATA KLATFACTOR /2.,3.,4.,10.,10.,12.,14.,20.,24.,28.,40.,48.,2.,0.,10.,0.,20.,2.,2./
@@ -255,6 +263,7 @@ END  SUBROUTINE WTABLE_mmf_noahmp
 ! halo'ed arrays
   integer, dimension(ims-1:ime+1, jms-1:jme+1) :: landmask_h
   real,    dimension(ims-1:ime+1, jms-1:jme+1) :: area_h, qlat_h
+  real,    dimension(ims-1:ime+1, jms-1:jme+1) :: qlatu_h,qlatv_h
 
 ! create halo'ed local copies of tile vars
   landmask_h(ims:ime, jms:jme) = landmask
@@ -305,7 +314,9 @@ END  SUBROUTINE WTABLE_mmf_noahmp
     jteh=min(jte,global_ny-1)
 
     
-    qlat_h = 0.
+    qlat_h  = 0.
+    qlatu_h = 0.
+    qlatv_h = 0.
 
     DO J = jtsh, jteh
        DO I = itsh, iteh
@@ -313,72 +324,317 @@ END  SUBROUTINE WTABLE_mmf_noahmp
 
                  Q  = 0. ! non-pumping cell
                  QP = 0. ! pumping cell
+                 qlat_h_u = 0.                  
+                 qlat_h_v = 0.
+
                  IF((PUMP_CELL(I-1,J+1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
-                   QP  = QP + (PI*0.5*(KCELL(I-1,J+1)+KCELL(I,J)))&
-                            * (HEAD(I-1,J+1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))
+                   ! lateral flow
+                   Qtmp = (PI*0.5*(KCELL(I-1,J+1)+KCELL(I,J)))&
+                        * (HEAD(I-1,J+1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))
+                   QP   = QP + Qtmp
+
+                   ! u and v components of Q
+                   theta    = 45.0
+                   IF( HEAD(I,J) .GT. HEAD(I-1,J+1) )THEN
+                       Qusign   = -1.0
+                       Qvsign   =  1.0 
+                   ELSE
+                       Qusign   =  1.0
+                       Qvsign   = -1.0
+                   ENDIF
+
+                   qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                   qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ELSE 
-                    Q  = Q  + (KCELL(I-1,J+1)+KCELL(I,J)) &
-                            * (HEAD(I-1,J+1)-HEAD(I,J))/SQRT(2.)
+                   ! lateral flow 
+                    Qtmp = (KCELL(I-1,J+1)+KCELL(I,J)) &
+                         * (HEAD(I-1,J+1)-HEAD(I,J))/SQRT(2.)
+                    Q    = Q  + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 45.0
+                    IF( HEAD(I,J) .GT. HEAD(I-1,J+1) )THEN
+                        Qusign   = -1.0
+                        Qvsign   =  1.0
+                    ELSE
+                        Qusign   =  1.0
+                        Qvsign   = -1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ENDIF
 
                  IF((PUMP_CELL(I-1,J)==1) .OR. (PUMP_CELL(I,J)==1))THEN
-                   QP  = QP + (PI*0.5*(KCELL(I-1,J)+KCELL(I,J)))&
-                            * (HEAD(I-1,J)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                    ! lateral flow
+                    Qtmp = (PI*0.5*(KCELL(I-1,J)+KCELL(I,J)))&
+                         * (HEAD(I-1,J)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                    QP   = QP + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 0.0
+                    IF( HEAD(I,J) .GT. HEAD(I-1,J) )THEN
+                        Qusign   = -1.0
+                    ELSE
+                        Qusign   =  1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + 0.0
+
                  ELSE
-                    Q  = Q  +  (KCELL(I-1,J)+KCELL(I,J)) &
-                            *  (HEAD(I-1,J)-HEAD(I,J))
+
+                    Qtmp  = (KCELL(I-1,J)+KCELL(I,J)) &
+                          * (HEAD(I-1,J)-HEAD(I,J))
+                    Q     = Q + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 180.0
+                    IF( HEAD(I,J) .GT. HEAD(I-1,J) )THEN
+                        Qusign   = -1.0
+                    ELSE
+                        Qusign   =  1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + 0.0
+
                  ENDIF
 
                  IF((PUMP_CELL(I-1,J-1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
-                   QP  = QP + (PI*0.5*(KCELL(I-1,J-1)+KCELL(I,J)))&
-                            * (HEAD(I-1,J-1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))
+                    ! lateral flow
+                    Qtmp  = (PI*0.5*(KCELL(I-1,J-1)+KCELL(I,J)))&
+                          * (HEAD(I-1,J-1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))
+                    QP    = QP + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 45.0
+                    IF( HEAD(I,J) .GT. HEAD(I-1,J-1) )THEN
+                        Qusign   = -1.0
+                        Qvsign   = -1.0
+                    ELSE
+                        Qusign   =  1.0
+                        Qvsign   =  1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ELSE
-                    Q  = Q  +  (KCELL(I-1,J-1)+KCELL(I,J)) &
-                            * (HEAD(I-1,J-1)-HEAD(I,J))/SQRT(2.)
+                    ! lateral flow
+                    Qtmp  = (KCELL(I-1,J-1)+KCELL(I,J)) &
+                          * (HEAD(I-1,J-1)-HEAD(I,J))/SQRT(2.)
+                    Q     = Q + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 45.0
+                    IF( HEAD(I,J) .GT. HEAD(I-1,J-1) )THEN
+                        Qusign   = -1.0
+                        Qvsign   = -1.0
+                    ELSE
+                        Qusign   =  1.0
+                        Qvsign   =  1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ENDIF
 
                  IF((PUMP_CELL(I,J+1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
-                   QP  = QP + (PI*0.5*(KCELL(I,J+1)+KCELL(I,J)))&
-                            * (HEAD(I,J+1)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                    ! lateral flow
+                    Qtmp  = (PI*0.5*(KCELL(I,J+1)+KCELL(I,J)))&
+                          * (HEAD(I,J+1)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                    QP    = QP + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 90.0
+                    IF( HEAD(I,J) .GT. HEAD(I,J+1) )THEN
+                        Qvsign   =  1.0
+                    ELSE
+                        Qvsign   = -1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + 0.0
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ELSE
-                    Q  = Q  +  (KCELL(I,J+1)+KCELL(I,J)) &
-                            * (HEAD(I,J+1)-HEAD(I,J))
+                    ! lateral flow
+                    Qtmp  = (KCELL(I,J+1)+KCELL(I,J)) &
+                          * (HEAD(I,J+1)-HEAD(I,J))
+                    Q     = Q + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 90.0
+                    IF( HEAD(I,J) .GT. HEAD(I,J+1) )THEN
+                        Qvsign   =  1.0
+                    ELSE
+                        Qvsign   = -1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + 0.0
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ENDIF
 
                  IF((PUMP_CELL(I,J-1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
-                   QP  = QP + (PI*0.5*(KCELL(I,J-1)+KCELL(I,J)))&
-                            * (HEAD(I,J-1)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                    ! lateral flow
+                    Qtmp   = (PI*0.5*(KCELL(I,J-1)+KCELL(I,J)))&
+                           * (HEAD(I,J-1)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                    QP     = QP + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 90.0
+                    IF( HEAD(I,J) .GT. HEAD(I,J-1) )THEN
+                        Qvsign   = -1.0
+                    ELSE
+                        Qvsign   =  1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + 0.0
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+                   
                  ELSE
-                    Q  = Q  +  (KCELL(I,J-1)+KCELL(I,J)) &
-                            * (HEAD(I,J-1)-HEAD(I,J))
+                    ! lateral flow
+                    Qtmp  = (KCELL(I,J-1)+KCELL(I,J)) &
+                          * (HEAD(I,J-1)-HEAD(I,J))
+                    Q     = Q + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 90.0
+                    IF( HEAD(I,J) .GT. HEAD(I,J-1) )THEN
+                        Qvsign   = -1.0
+                    ELSE
+                        Qvsign   =  1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + 0.0
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ENDIF
 
                  IF((PUMP_CELL(I+1,J+1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
-                   QP  = QP + (PI*0.5*(KCELL(I+1,J+1)+KCELL(I,J)))&
-                            * (HEAD(I+1,J+1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))                 
+                    ! lateral flow
+                    Qtmp  = (PI*0.5*(KCELL(I+1,J+1)+KCELL(I,J)))&
+                          * (HEAD(I+1,J+1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))     
+                    QP    = QP + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 45.0
+                    IF( HEAD(I,J) .GT. HEAD(I+1,J+1) )THEN
+                        Qusign   =  1.0
+                        Qvsign   =  1.0
+                    ELSE
+                        Qusign   = -1.0
+                        Qvsign   = -1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+            
                  ELSE
-                    Q  = Q  +  (KCELL(I+1,J+1)+KCELL(I,J)) &
-                            * (HEAD(I+1,J+1)-HEAD(I,J))/SQRT(2.)
+                    ! lateral flow
+                    Qtmp  = (KCELL(I+1,J+1)+KCELL(I,J)) &
+                          * (HEAD(I+1,J+1)-HEAD(I,J))/SQRT(2.)
+                    Q     = Q + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 45.0
+                    IF( HEAD(I,J) .GT. HEAD(I+1,J+1) )THEN
+                        Qusign   =  1.0
+                        Qvsign   =  1.0
+                    ELSE
+                        Qusign   = -1.0
+                        Qvsign   = -1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ENDIF
 
                  IF((PUMP_CELL(I+1,J)==1) .OR. (PUMP_CELL(I,J)==1))THEN
-                   QP  = QP + (PI*0.5*(KCELL(I+1,J)+KCELL(I,J)))&
-                            * (HEAD(I+1,J)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                    ! lateral flow
+                    Qtmp  = (PI*0.5*(KCELL(I+1,J)+KCELL(I,J)))&
+                          * (HEAD(I+1,J)-HEAD(I,J))/(4*LOG((DX)/(0.178*DX)))
+                    QP    = QP + Qtmp 
+
+                    ! u and v components of Q
+                    theta    = 0.0
+                    IF( HEAD(I,J) .GT. HEAD(I+1,J+1) )THEN
+                        Qusign   =  1.0
+                    ELSE
+                        Qusign   = -1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + 0.0
+
                  ELSE
-                    Q  = Q  +  (KCELL(I+1,J)+KCELL(I,J)) &
-                            * (HEAD(I+1,J)-HEAD(I,J))
+                    ! lateral flow
+                    Qtmp  = (KCELL(I+1,J)+KCELL(I,J)) &
+                          * (HEAD(I+1,J)-HEAD(I,J))
+                    Q     = Q + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 0.0
+                    IF( HEAD(I,J) .GT. HEAD(I+1,J+1) )THEN
+                        Qusign   =  1.0
+                    ELSE
+                        Qusign   = -1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + 0.0
+
                  ENDIF
                  
                  IF((PUMP_CELL(I+1,J-1)==1) .OR. (PUMP_CELL(I,J)==1))THEN
-                   QP  = QP + (PI*0.5*(KCELL(I+1,J-1)+KCELL(I,J)))&
-                            * (HEAD(I+1,J-1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))
+                    ! lateral flow                   
+                    Qtmp  = (PI*0.5*(KCELL(I+1,J-1)+KCELL(I,J)))&
+                          * (HEAD(I+1,J-1)-HEAD(I,J))/(4*LOG((SQRT(2.)*DX)/(0.178*DX)))
+                    QP    = QP + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 45.0
+                    IF( HEAD(I,J) .GT. HEAD(I+1,J+1) )THEN
+                        Qusign   =  1.0
+                        Qvsign   = -1.0
+                    ELSE
+                        Qusign   = -1.0
+                        Qvsign   =  1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ELSE                 
-                    Q  = Q  +  (KCELL(I+1,J-1)+KCELL(I,J)) &
-                            * (HEAD(I+1,J-1)-HEAD(I,J))/SQRT(2.)
+                    ! lateral flow
+                    Qtmp  = (KCELL(I+1,J-1)+KCELL(I,J)) &
+                          * (HEAD(I+1,J-1)-HEAD(I,J))/SQRT(2.)
+                    Q     = Q + Qtmp
+
+                    ! u and v components of Q
+                    theta    = 45.0
+                    IF( HEAD(I,J) .GT. HEAD(I+1,J+1) )THEN
+                        Qusign   =  1.0
+                        Qvsign   = -1.0
+                    ELSE
+                        Qusign   = -1.0
+                        Qvsign   =  1.0
+                    ENDIF
+
+                    qlat_h_u = qlat_h_u + abs(Qtmp)*cos(theta)*Qusign
+                    qlat_h_v = qlat_h_v + abs(Qtmp)*sin(theta)*Qvsign
+
                  ENDIF
                  
                  ! Here, Q is in m3/s. To convert to m, divide it by area of the grid cell.
                  qlat_h(I, J)  = (FANGLE * Q * DELTAT / area_h(I, J)) + (QP * DELTAT/ area_h(I, J))
+                 qlatu_h(I,J)  = FANGLE * qlat_h_u
+                 qlatv_h(I,J)  = FANGLE * qlat_h_v
           ENDIF
        ENDDO
     ENDDO
@@ -386,6 +642,12 @@ END  SUBROUTINE WTABLE_mmf_noahmp
 ! merge (sum) of all neighbor's edge Q's
         call mpp_land_com_real(qlat_h, nx, ny, 1)
         qlat = qlat_h(ims:ime, jms:jme) 
+
+        call mpp_land_com_real(qlatu_h, nx, ny, 1)
+        qlat_u = qlatu_h(ims:ime, jms:jme)
+
+        call mpp_land_com_real(qlatv_h, nx, ny, 1)
+        qlat_v = qlatv_h(ims:ime, jms:jme)
 
 END  SUBROUTINE LATERALFLOW
 ! ==================================================================================================
