@@ -266,8 +266,8 @@ END  SUBROUTINE WTABLE_mmf_noahmp
   real,    dimension(ims-1:ime+1, jms-1:jme+1) :: qlatu_h,qlatv_h
 
 ! create halo'ed local copies of tile vars
-  landmask_h(ims:ime, jms:jme) = landmask
-  area_h(ims:ime, jms:jme)     = area
+  landmask_h(ims:ime, jms:jme) = landmask(ims:ime, jms:jme)
+  area_h(ims:ime, jms:jme)     = area(ims:ime, jms:jme)
 
   nx = ((ime-ims) + 1) + 2      ! include halos
   ny = ((jme-jms) + 1) + 2      ! include halos
