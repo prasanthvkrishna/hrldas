@@ -686,10 +686,10 @@ contains
 
     character(len=*),          intent(in)  :: wrfinput_flnm
     integer,                   intent(in)  :: xstart, xend, ystart, yend
-    real(kind=kind_noahmp),    dimension(xstart:xend,5,ystart:yend), intent(out) :: croptype
-    real(kind=kind_noahmp),    dimension(xstart:xend,  ystart:yend), intent(out) :: planting
-    real(kind=kind_noahmp),    dimension(xstart:xend,  ystart:yend), intent(out) :: harvest
-    real(kind=kind_noahmp),    dimension(xstart:xend,  ystart:yend), intent(out) :: season_gdd
+    real(kind=kind_noahmp),    dimension(xstart:xend,5,ystart:yend), intent(inout) :: croptype
+    real(kind=kind_noahmp),    dimension(xstart:xend,  ystart:yend), intent(inout) :: planting
+    real(kind=kind_noahmp),    dimension(xstart:xend,  ystart:yend), intent(inout) :: harvest
+    real(kind=kind_noahmp),    dimension(xstart:xend,  ystart:yend), intent(inout) :: season_gdd
     
     character(len=256) :: units
     character(len=24)  :: name
@@ -714,7 +714,7 @@ contains
     ierr = nf90_open(wrfinput_flnm, NF90_NOWRITE, ncid)
 #endif
     if (ierr /= 0) then
-       write(*,'("read_mmf_runoff:  Problem opening wrfinput file: ''", A, "''")') trim(wrfinput_flnm)
+       write(*,'("read_crop_input:  Problem opening wrfinput file: ''", A, "''")') trim(wrfinput_flnm)
 #ifdef _PARALLEL_
        call mpi_finalize(ierr)
        if (ierr /= 0) write(*, '("Problem with MPI_finalize.")')
@@ -740,7 +740,7 @@ contains
     if (iret == 0) then
       ierr = nf90_get_var(ncid, varid, planting, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
     else
-      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
+      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using table values."
     endif
 
 ! Get harvest date (HARVEST)
@@ -749,7 +749,7 @@ contains
     if (iret == 0) then
       ierr = nf90_get_var(ncid, varid, harvest, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
     else
-      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
+      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using table values."
     endif
 
 ! Get seasonal growing degree days (SEASON_GDD)
@@ -758,7 +758,7 @@ contains
     if (iret == 0) then
       ierr = nf90_get_var(ncid, varid, season_gdd, start=(/xstart,ystart/), count=(/xend-xstart+1,yend-ystart+1/))
     else
-      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using default values."
+      write(*,*) "MODULE_HRLDAS_NETCDF_IO:  Problem finding variable '"//trim(name)//"' in NetCDF file. Using table values."
     endif
 
 ! Close the NetCDF file
@@ -3576,8 +3576,11 @@ contains
 #ifdef MPP_LAND
       subroutine prepare_restart_file_mpp(outdir, version, igrid, llanduse, olddate, startdate,  &
        ixfull, jxfull, ixpar, jxpar, xstartpar, ystartpar,                                    &
-       nsoil, nsnow, nrad, num_urban_layers, dx, dy, truelat1, truelat2, mapproj, lat1, lon1, cen_lon,                       &
-       iswater, vegtyp)
+       nsoil, nsnow, nrad, dx, dy, truelat1, truelat2, mapproj, lat1, lon1, cen_lon,&
+       iswater, vegtyp, num_urban_hi, urban_map_zrd, urban_map_zwd, &
+       urban_map_gd, urban_map_zd, urban_map_zdf,  urban_map_bd,    &
+       urban_map_wd, urban_map_gbd, urban_map_fbd, urban_map_zgrd,  &
+       urban_map_ndm,sf_urban_physics)
 
     implicit none
 
@@ -3596,7 +3599,19 @@ contains
     integer,                               intent(in) :: nsoil
     integer,                               intent(in) :: nsnow
     integer,                               intent(in) :: nrad
-    integer,                               intent(in) :: num_urban_layers
+    integer,                               intent(in) :: num_urban_hi
+    integer,                               intent(in) :: urban_map_zrd
+    integer,                               intent(in) :: urban_map_zwd
+    integer,                               intent(in) :: urban_map_gd
+    integer,                               intent(in) :: urban_map_zd
+    integer,                               intent(in) :: urban_map_zdf
+    integer,                               intent(in) :: urban_map_bd
+    integer,                               intent(in) :: urban_map_wd
+    integer,                               intent(in) :: urban_map_gbd
+    integer,                               intent(in) :: urban_map_fbd
+    integer,                               intent(in) :: urban_map_zgrd
+    integer,                               intent(in) :: urban_map_ndm
+    integer,                               intent(in) :: sf_urban_physics
     real(kind=kind_noahmp),                intent(in) :: dx, dy
     real(kind=kind_noahmp),                intent(in) :: truelat1, truelat2
     integer,                               intent(in) :: mapproj
@@ -3609,8 +3624,11 @@ contains
     if(my_id .eq. io_id) then
       call prepare_restart_file_seq(outdir, version, igrid, llanduse, olddate, startdate,  &
        global_nx, global_ny, global_nx, global_ny, xstartpar, ystartpar,               &
-       nsoil, nsnow, nrad, num_urban_layers, dx, dy, truelat1, truelat2, mapproj, lat1, lon1, cen_lon,         &
-       iswater, gvegtyp)
+       nsoil, nsnow, nrad, dx, dy, truelat1, truelat2, mapproj, lat1, lon1, cen_lon, &
+       iswater, gvegtyp, num_urban_hi, urban_map_zrd, urban_map_zwd, &
+       urban_map_gd, urban_map_zd, urban_map_zdf,  urban_map_bd,    &
+       urban_map_wd, urban_map_gbd, urban_map_fbd, urban_map_zgrd, &
+       urban_map_ndm, sf_urban_physics )
     endif 
 
     call mpp_land_sync()
@@ -3620,8 +3638,11 @@ contains
 
   subroutine prepare_restart_file_seq(outdir, version, igrid, llanduse, olddate, startdate,  &
        ixfull, jxfull, ixpar, jxpar, xstartpar, ystartpar,                                    &
-       nsoil, nsnow, nrad, num_urban_layers, dx, dy, truelat1, truelat2, mapproj, lat1, lon1, cen_lon,  &
-       iswater, vegtyp)
+       nsoil, nsnow, nrad, dx, dy, truelat1, truelat2, mapproj, lat1, lon1, cen_lon,  &
+       iswater, vegtyp, num_urban_hi, urban_map_zrd, urban_map_zwd, &
+       urban_map_gd, urban_map_zd, urban_map_zdf,  urban_map_bd,    &
+       urban_map_wd, urban_map_gbd, urban_map_fbd, urban_map_zgrd,  &
+       urban_map_ndm, sf_urban_physics)
 
     implicit none
 #include <netcdf.inc>
@@ -3641,7 +3662,19 @@ contains
     integer,                               intent(in) :: nsoil
     integer,                               intent(in) :: nsnow
     integer,                               intent(in) :: nrad
-    integer,                               intent(in) :: num_urban_layers
+    integer,                               intent(in) :: num_urban_hi
+    integer,                               intent(in) :: urban_map_zrd
+    integer,                               intent(in) :: urban_map_zwd
+    integer,                               intent(in) :: urban_map_gd
+    integer,                               intent(in) :: urban_map_zd
+    integer,                               intent(in) :: urban_map_zdf
+    integer,                               intent(in) :: urban_map_bd
+    integer,                               intent(in) :: urban_map_wd
+    integer,                               intent(in) :: urban_map_gbd
+    integer,                               intent(in) :: urban_map_fbd
+    integer,                               intent(in) :: urban_map_zgrd
+    integer,                               intent(in) :: urban_map_ndm
+    integer,                               intent(in) :: sf_urban_physics
     real(kind=kind_noahmp),                intent(in) :: dx, dy
     real(kind=kind_noahmp),                intent(in) :: truelat1, truelat2
     integer,                               intent(in) :: mapproj
@@ -3654,7 +3687,11 @@ contains
     character(len=256) :: output_flnm
     integer :: ierr
     integer :: varid
-    integer :: dimid_times, dimid_datelen, dimid_ix, dimid_jx, dimid_dum, dimid_layers, dimid_snow_layers, dimid_sosn_layers, dimid_urban,dimid_numrad_layers
+    integer :: dimid_times,dimid_datelen,dimid_ix,dimid_jx,dimid_dum, &
+               dimid_layers,dimid_snow_layers, dimid_sosn_layers,     &
+               dimid_numrad_layers,dimid_ubhi,dimid_uzrd,             &
+               dimid_uzwd,dimid_ubgd,dimid_ubzd,dimid_uzdf,dimid_ubbd,&
+               dimid_ubwd,dimid_ugbd,dimid_ufbd,dimid_zgrd,dimid_undm
     character(len=19) :: date19
     integer :: rank
 
@@ -3702,8 +3739,24 @@ contains
     ierr = nf90_def_dim(ncid, "soil_layers_stag", nsoil, dimid_layers)
     ierr = nf90_def_dim(ncid, "snow_layers", nsnow, dimid_snow_layers)
     ierr = nf90_def_dim(ncid, "sosn_layers", nsnow+nsoil, dimid_sosn_layers)
-    ierr = nf90_def_dim(ncid, "urban_layers", num_urban_layers, dimid_urban)
     ierr = nf90_def_dim(ncid, "rad_layers", nrad, dimid_numrad_layers)
+    
+    if ( (sf_urban_physics == 2) .or. (sf_urban_physics == 3) ) then
+        ierr = nf90_def_dim(ncid, "ubhi_layers", num_urban_hi, dimid_ubhi)
+        ierr = nf90_def_dim(ncid, "uzrd_layers", urban_map_zrd, dimid_uzrd)
+        ierr = nf90_def_dim(ncid, "uzwd_layers", urban_map_zwd, dimid_uzwd)
+        ierr = nf90_def_dim(ncid, "ubgd_layers", urban_map_gd, dimid_ubgd)
+        ierr = nf90_def_dim(ncid, "ubzd_layers", urban_map_zd, dimid_ubzd)
+        ierr = nf90_def_dim(ncid, "uzdf_layers", urban_map_zdf, dimid_uzdf)
+        ierr = nf90_def_dim(ncid, "undm_layers", urban_map_ndm, dimid_undm)
+    endif
+    if ( sf_urban_physics == 3 ) then
+        ierr = nf90_def_dim(ncid, "ubbd_layers", urban_map_bd, dimid_ubbd)
+        ierr = nf90_def_dim(ncid, "ubwd_layers", urban_map_wd, dimid_ubwd)
+        ierr = nf90_def_dim(ncid, "ugbd_layers", urban_map_gbd, dimid_ugbd)
+        ierr = nf90_def_dim(ncid, "ufbd_layers", urban_map_fbd, dimid_ufbd)
+        ierr = nf90_def_dim(ncid, "zgrd_layers", urban_map_zgrd, dimid_zgrd)
+    endif
 
     ierr = nf90_put_att(ncid, NF90_GLOBAL, "TITLE", "RESTART FILE FROM HRLDAS "//version)
     ierr = nf90_put_att(ncid, NF90_GLOBAL, "missing_value", -1.E33)
@@ -3959,7 +4012,7 @@ contains
 
   subroutine add_to_restart_3d(array, name, units, description, layers)
     implicit none
-    real(kind=kind_noahmp),            dimension(:,:,:),                            intent(in) :: array
+    real(kind=kind_noahmp), dimension(:,:,:),                     intent(in) :: array
     character(len=*),                                             intent(in) :: name
     character(len=*), optional,                                   intent(in) :: units
     character(len=*), optional,                                   intent(in) :: description
@@ -4030,14 +4083,47 @@ contains
     else if (output_layers == "SOSN") then
        ierr = nf90_inq_dimid(ncid, "sosn_layers", dimid_kx)
        call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'sosn_layers'")
-    else if (output_layers == "URBN") then
-       ierr = nf90_inq_dimid(ncid, "urban_layers", dimid_kx)
-       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'urban_layers'")
     else if (output_layers == "RADN") then
        ierr = nf90_inq_dimid(ncid, "rad_layers", dimid_kx)
        call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'rad_layers'")
+    else if (output_layers == "UBHI") then
+       ierr = nf90_inq_dimid(ncid, "ubhi_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'ubhi_layers'")
+    else if (output_layers == "UZRD") then
+       ierr = nf90_inq_dimid(ncid, "uzrd_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'uzrd_layers'")
+    else if (output_layers == "UZWD") then
+       ierr = nf90_inq_dimid(ncid, "uzwd_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'uzwd_layers'")
+    else if (output_layers == "UBGD") then
+       ierr = nf90_inq_dimid(ncid, "ubgd_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'ubgd_layers'")
+    else if (output_layers == "UBZD") then
+       ierr = nf90_inq_dimid(ncid, "ubzd_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'ubzd_layers'")
+    else if (output_layers == "UZDF") then
+       ierr = nf90_inq_dimid(ncid, "uzdf_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'uzdf_layers'")
+    else if (output_layers == "UBBD") then
+       ierr = nf90_inq_dimid(ncid, "ubbd_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'ubbd_layers'")
+    else if (output_layers == "UBWD") then
+       ierr = nf90_inq_dimid(ncid, "ubwd_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'ubwd_layers'")
+    else if (output_layers == "UGBD") then
+       ierr = nf90_inq_dimid(ncid, "ugbd_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'ugbd_layers'")
+    else if (output_layers == "UFBD") then
+       ierr = nf90_inq_dimid(ncid, "ufbd_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'ufbd_layers'")
+    else if (output_layers == "ZGRD") then
+       ierr = nf90_inq_dimid(ncid, "zgrd_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'zgrd_layers'")
+    else if (output_layers == "UNDM") then
+       ierr = nf90_inq_dimid(ncid, "undm_layers", dimid_kx)
+       call error_handler(ierr, "ADD_TO_RESTART:  nf90_inq_dimid for 'undm_layers'")       
     else
-       stop "PANIC!"
+       stop "No vertical dimension found in restart save!"
     endif
 
     ierr = nf90_inq_dimid(ncid, "Time", dimid_times)
