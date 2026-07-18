@@ -730,34 +730,88 @@ MODULE MODULE_MPP_LAND
 
 ! NoahMP Mosaic <Prasanth Valayamkunnath, July 22, 2025>
 
-  subroutine write_IO_real_mosaic(in_buff,out_buff,ntile)
+!  subroutine write_IO_real_mosaic(in_buff,out_buff,ntile)
+!     implicit none
+! the IO node will receive the data from the rest process.
+!      integer ntile, n
+!      real,dimension(:,:,:) :: in_buff, out_buff
+!      do n = 1, ntile
+!         call write_IO_real(in_buff(:,:,n),out_buff(:,:,n))
+!      end do
+!  end subroutine write_IO_real_mosaic
+
+   subroutine write_IO_real_mosaic(in_buff,out_buff,ntile)
      implicit none
 ! the IO node will receive the data from the rest process.
-      integer ntile, n
-      real,dimension(:,:,:) :: in_buff, out_buff
-      do n = 1, ntile
-         call write_IO_real(in_buff(:,:,n),out_buff(:,:,n))
-      end do
+     integer ntile, n
+     real,dimension(:,:,:) :: in_buff, out_buff
+
+     do n = 1, ntile
+         if (my_id .ne. IO_id) then
+            ! Non-IO ranks send their data, but pass index 1 of the dummy out_buff 
+            ! to avoid out-of-bounds runtime errors
+            call write_IO_real(in_buff(:,:,n), out_buff(:,:,1))
+         else
+            ! The IO rank collects everything into the actual allocated tiles
+            call write_IO_real(in_buff(:,:,n), out_buff(:,:,n))
+         end if
+     end do
   end subroutine write_IO_real_mosaic
 
-  subroutine write_IO_real3d_mosaic(in_buff,out_buff,klevel,ntile)
+!  subroutine write_IO_real3d_mosaic(in_buff,out_buff,klevel,ntile)
+!     implicit none
+! the IO node will receive the data from the rest process.
+!      integer klevel, k, ntile
+!      real,dimension(:,:,:,:) :: in_buff, out_buff
+!      if (my_id == IO_id) then
+!        print*, "DEBUG: ntile =", ntile
+!        print*, "DEBUG: Shape of out_buff =", SHAPE(out_buff)
+!     endif
+!      do k = 1, klevel
+!         call write_IO_real_mosaic(in_buff(:,k,:,:),out_buff(:,k,:,:),ntile)
+!      end do
+!  end subroutine write_IO_real3d_mosaic
+   subroutine write_IO_real3d_mosaic(in_buff,out_buff,klevel,ntile)
      implicit none
 ! the IO node will receive the data from the rest process.
-      integer klevel, k, ntile
-      real,dimension(:,:,:,:) :: in_buff, out_buff
-      do k = 1, klevel
-         call write_IO_real_mosaic(in_buff(:,k,:,:),out_buff(:,k,:,:),ntile)
-      end do
-  end subroutine write_IO_real3d_mosaic
+     integer klevel, k, ntile
+     real,dimension(:,:,:,:) :: in_buff, out_buff
+     
+     do k = 1, klevel
+         if (my_id .ne. IO_id) then
+            ! Non-IO ranks pass index 1 of the dummy out_buff to bypass bounds checks
+            call write_IO_real_mosaic(in_buff(:,k,:,:), out_buff(:,1,:,:), ntile)
+         else
+            ! Only the IO rank accesses the actual k-level slice
+            call write_IO_real_mosaic(in_buff(:,k,:,:), out_buff(:,k,:,:), ntile)
+         end if
+     end do
+   end subroutine write_IO_real3d_mosaic
+  
+!    subroutine write_io_int_mosaic(in_buff,out_buff,ntile)
+!     implicit none
+! the IO node will receive the data from the rest process.
+!      integer ntile, n
+!      integer,dimension(:,:,:) :: in_buff, out_buff
+!      do n = 1, ntile
+!         call write_io_int(in_buff(:,:,n),out_buff(:,:,n))
+!      end do
+!  end subroutine write_io_int_mosaic
+  subroutine write_io_int_mosaic(in_buff,out_buff,ntile)
+     implicit none
+! the IO node will receive the data from the rest process.
+     integer ntile, n
+     integer,dimension(:,:,:) :: in_buff, out_buff
 
-    subroutine write_io_int_mosaic(in_buff,out_buff,ntile)
-     implicit none
-! the IO node will receive the data from the rest process.
-      integer ntile, n
-      integer,dimension(:,:,:) :: in_buff, out_buff
-      do n = 1, ntile
-         call write_io_int(in_buff(:,:,n),out_buff(:,:,n))
-      end do
+     do n = 1, ntile
+         if (my_id .ne. IO_id) then
+            ! Non-IO ranks pass index 1 of the dummy out_buff to bypass bounds checks
+            call write_io_int(in_buff(:,:,n), out_buff(:,:,1))
+         else
+            ! Only the IO rank collects everything into the actual allocated tiles
+            call write_io_int(in_buff(:,:,n), out_buff(:,:,n))
+         end if
+     end do
   end subroutine write_io_int_mosaic
 
   subroutine calculate_ntilemax_mpp(local_NTilesMax,global_NTilesMax)

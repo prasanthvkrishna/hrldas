@@ -23,6 +23,7 @@ contains
     implicit none
 
     type(NoahmpIO_type), intent(inout)  :: NoahmpIO
+
     call add_to_restart_mosaic(NoahmpIO%TSLB      , "SOIL_T", NoahmpIO%NTilesMax, layers="SOIL")
     call add_to_restart_mosaic(NoahmpIO%TSNOXY    , "SNOW_T", NoahmpIO%NTilesMax, layers="SNOW")
     call add_to_restart_mosaic(NoahmpIO%SMOIS     , "SMC"   , NoahmpIO%NTilesMax, layers="SOIL")
@@ -53,6 +54,10 @@ contains
     call add_to_restart_mosaic(NoahmpIO%STMASSXY  , "STMASS", NoahmpIO%NTilesMax)
 
     call add_to_restart(NoahmpIO%CROPCAT   , "CROPCAT" )
+
+    if(NoahmpIO%IOPT_MOSAIC > 0) then
+      call add_to_restart(NoahmpIO%NumberOfTiles   , "NumberOfTiles" )
+    endif
 
     call add_to_restart_mosaic(NoahmpIO%WOODXY    , "WOOD"  , NoahmpIO%NTilesMax)
     call add_to_restart_mosaic(NoahmpIO%GRAINXY   , "GRAIN" , NoahmpIO%NTilesMax)

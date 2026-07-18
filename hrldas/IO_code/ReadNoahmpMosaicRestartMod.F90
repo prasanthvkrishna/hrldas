@@ -68,6 +68,10 @@ contains
 
     call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "CROPCAT" , NoahmpIO%CROPCAT  )
 
+    if(NoahmpIO%IOPT_MOSAIC > 0) then
+      call get_from_restart(xstart, xend, xstart, ixfull, jxfull, "NumberOfTiles", NoahmpIO%NumberOfTiles )
+    endif
+
     call get_from_restart_mosaic(xstart, xend, xstart, ixfull, jxfull, ntile, "WOOD"    , NoahmpIO%WOODXY   )
     call get_from_restart_mosaic(xstart, xend, xstart, ixfull, jxfull, ntile, "GRAIN"   , NoahmpIO%GRAINXY  )
     call get_from_restart_mosaic(xstart, xend, xstart, ixfull, jxfull, ntile, "GDD"     , NoahmpIO%GDDXY    )
